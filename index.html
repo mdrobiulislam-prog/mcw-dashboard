@@ -1,1 +1,1623 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>MCW Multi-Brand KPI Dashboard</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    :root { color-scheme: dark; }
+    ::-webkit-scrollbar{height:10px;width:10px}
+    ::-webkit-scrollbar-thumb{background:#334155;border-radius:999px}
+    ::-webkit-scrollbar-track{background:#0b1220}
+
+    /* ✅ Mobile polish (doesn't affect desktop) */
+    @media (max-width: 640px){
+      .max-w-\[1550px\]{ padding: 14px !important; }
+      #cardsArea{ grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+      #cardsArea > div, #cardsArea > button{ padding: 12px !important; border-radius: 18px !important; }
+      .text-xl{ font-size: 18px !important; }
+      canvas{ max-height: 260px !important; }
+      #dailyOptions .grid{ grid-template-columns: 1fr !important; }
+    }
+  </style>
+</head>
+
+<body class="bg-slate-950 text-slate-100">
+  <div class="max-w-[1550px] mx-auto p-5">
+
+    <!-- Header -->
+    <div class="flex items-center justify-between gap-4 mb-5">
+      <div class="flex items-center gap-3">
+        <div class="w-11 h-11 rounded-2xl bg-indigo-600 flex items-center justify-center font-bold shadow">MCW</div>
+        <div>
+          <div class="text-xl font-semibold leading-tight">Multi-Brand KPI Dashboard</div>
+          <div class="text-xs text-slate-400">Daily KPI + Vendor Monitor · Netlify Static · Fast Cache</div>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <div class="hidden md:flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-900 border border-slate-800">
+          <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+          <span class="text-sm">LIVE</span>
+        </div>
+
+        <div class="px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-300" id="userBadge">
+          Locked
+        </div>
+
+        <button id="changePwBtn" class="hidden px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-sm">
+          Change Password
+        </button>
+
+        <button id="logoutBtn" class="hidden px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-sm">
+          Logout
+        </button>
+      </div>
+    </div>
+
+    <!-- FILE:// BLOCK -->
+    <div id="fileBlock" class="hidden bg-amber-500/10 border border-amber-500/30 rounded-2xl p-5 mb-5">
+      <div class="text-lg font-semibold text-amber-200">Local file mode detected</div>
+      <div class="text-sm text-slate-300 mt-1">
+        You opened this dashboard using <span class="font-mono">file://</span>. Chrome blocks fetching Google CSV from local files.
+        Please open using <b>Live Server</b> or <b>http://localhost</b>, or run from Netlify.
+      </div>
+
+      <div class="mt-4 flex flex-col md:flex-row gap-2">
+        <button id="copyRunSteps" class="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-semibold">
+          Copy run steps
+        </button>
+        <div class="text-xs text-slate-400 md:self-center">
+          Tip: VS Code → Live Server → <span class="font-mono">http://127.0.0.1:5500</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- PASSWORD GATE -->
+    <div id="authGate" class="bg-slate-900/70 border border-slate-800 rounded-2xl p-5 mb-5">
+      <div class="w-full">
+        <div class="text-lg font-semibold">Restricted Access</div>
+        <div class="text-sm text-slate-400">Enter the dashboard password to continue.</div>
+
+        <div class="mt-4 flex flex-col sm:flex-row gap-2 sm:items-center">
+          <input id="pwInput" type="password" placeholder="Enter password"
+            class="w-full sm:w-[320px] bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 outline-none"
+            autocomplete="current-password" />
+          <button id="loginBtn"
+            class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-semibold">
+            Unlock
+          </button>
+        </div>
+
+        <label class="mt-3 flex items-center gap-2 text-xs text-slate-400 select-none">
+          <input id="rememberChk" type="checkbox" class="accent-indigo-500" checked />
+          Remember on this device (8 hours)
+        </label>
+
+        <div id="authMsg" class="text-sm text-rose-300 hidden mt-3"></div>
+
+        <div class="mt-4 text-xs text-slate-500 leading-relaxed">
+          Default password is set in code. After login you can change it (saved in this browser).<br>
+          Data loads from your published CSV links (7 brands).
+        </div>
+      </div>
+    </div>
+
+    <!-- CHANGE PASSWORD MODAL -->
+    <div id="pwModal" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-50">
+      <div class="max-w-lg mx-auto mt-24 bg-slate-950 border border-slate-800 rounded-2xl p-5 shadow-xl">
+        <div class="flex items-center justify-between">
+          <div class="text-lg font-semibold">Change Password</div>
+          <button id="pwClose" class="px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-800">✕</button>
+        </div>
+
+        <div class="mt-4 space-y-3">
+          <div>
+            <label class="text-xs text-slate-400">Current Password</label>
+            <input id="pwCurrent" type="password" class="mt-1 w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 outline-none" />
+          </div>
+
+          <div>
+            <label class="text-xs text-slate-400">New Password</label>
+            <input id="pwNew" type="password" class="mt-1 w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 outline-none" />
+          </div>
+
+          <div>
+            <label class="text-xs text-slate-400">Confirm New Password</label>
+            <input id="pwNew2" type="password" class="mt-1 w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 outline-none" />
+          </div>
+
+          <div class="text-xs text-slate-500">
+            Note: Password change is stored in this browser/device only (localStorage).
+          </div>
+
+          <div id="pwModalMsg" class="text-sm text-rose-300 hidden"></div>
+
+          <div class="flex gap-2 justify-end mt-4">
+            <button id="pwResetDefault" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700">Reset to Default</button>
+            <button id="pwSave" class="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-semibold">Save</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Loading overlay -->
+    <div id="loadingOverlay" class="hidden fixed inset-0 bg-black/55 backdrop-blur-[2px] z-40">
+      <div class="max-w-xl mx-auto mt-32 bg-slate-950 border border-slate-800 rounded-2xl p-5">
+        <div class="flex items-center justify-between">
+          <div class="font-semibold">Loading data…</div>
+          <div class="text-xs text-slate-400" id="loadingHint">Fetching CSV</div>
+        </div>
+        <div class="mt-4 space-y-3">
+          <div class="h-4 rounded bg-slate-900 animate-pulse"></div>
+          <div class="h-4 rounded bg-slate-900 animate-pulse w-5/6"></div>
+          <div class="h-4 rounded bg-slate-900 animate-pulse w-3/4"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- APP -->
+    <div id="app" class="hidden">
+
+      <!-- Controls -->
+      <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 mb-5">
+        <div class="grid grid-cols-1 md:grid-cols-8 gap-3">
+
+          <div class="md:col-span-1">
+            <label class="text-xs text-slate-400">Brand</label>
+            <select id="brandSelect" class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 outline-none"></select>
+          </div>
+
+          <div class="md:col-span-2">
+            <label class="text-xs text-slate-400">Dataset</label>
+            <div class="mt-1 flex gap-2">
+              <button id="btnDaily" class="flex-1 px-3 py-2 rounded-xl border border-slate-800 bg-indigo-600 font-medium">Daily KPI</button>
+              <button id="btnVendor" class="flex-1 px-3 py-2 rounded-xl border border-slate-800 bg-slate-950 font-medium">Vendor Monitor</button>
+            </div>
+          </div>
+
+          <div class="md:col-span-1">
+            <label class="text-xs text-slate-400">Date</label>
+            <input id="dateSelect" type="date" class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 outline-none" />
+          </div>
+
+          <div class="md:col-span-2">
+            <label class="text-xs text-slate-400">Quick Dates</label>
+            <div class="mt-1 flex gap-2">
+              <button id="quickLatest" class="flex-1 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-sm">Latest</button>
+              <button id="quickYesterday" class="flex-1 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-sm">Yesterday</button>
+              <button id="quick7d" class="flex-1 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-sm">7d Ago</button>
+            </div>
+          </div>
+
+          <div class="md:col-span-1">
+            <label class="text-xs text-slate-400">Search</label>
+            <input id="searchBox" placeholder="Vendor / Status / Notes..."
+              class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 outline-none" />
+          </div>
+
+          <div class="md:col-span-1 flex gap-2 items-end">
+            <button id="refreshBtn" class="w-1/2 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700">Refresh</button>
+            <button id="exportBtn" class="w-1/2 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-semibold">Export</button>
+          </div>
+
+        </div>
+
+        <div class="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-400">
+          <div id="lastUpdated">Last update: —</div>
+          <div class="px-2 py-1 rounded-lg bg-slate-950 border border-slate-800" id="metaInfo">—</div>
+          <div class="px-2 py-1 rounded-lg bg-slate-950 border border-slate-800">Mode: <span id="modeInfo">CSV</span></div>
+          <div class="px-2 py-1 rounded-lg bg-slate-950 border border-slate-800">Cache: <span id="cacheInfo">—</span></div>
+          <div class="px-2 py-1 rounded-lg bg-slate-950 border border-slate-800">Last available: <span id="lastAvail">—</span></div>
+
+          <button id="exportCombinedBtn" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs">
+            Export Combined (Daily+Vendor)
+          </button>
+
+          <button id="printBtn" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs">
+            Print / PDF
+          </button>
+        </div>
+      </div>
+
+      <!-- Daily view options -->
+      <div id="dailyOptions" class="hidden bg-slate-900/50 border border-slate-800 rounded-2xl p-4 mb-5">
+        <div class="flex flex-col lg:flex-row gap-3 lg:items-center lg:justify-between">
+          <div class="flex items-center gap-2">
+            <div class="text-sm font-semibold">Daily KPI View</div>
+            <div class="flex gap-2">
+              <button id="viewSnapshot" class="px-3 py-2 rounded-xl bg-indigo-600 text-sm font-medium">Snapshot</button>
+              <button id="viewTrend" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-sm font-medium">Trend</button>
+            </div>
+          </div>
+
+          <div id="trendControls" class="hidden flex flex-col md:flex-row gap-2 md:items-center">
+            <div class="flex gap-2">
+              <button class="trendRange px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-sm" data-range="7">7D</button>
+              <button class="trendRange px-3 py-2 rounded-xl bg-indigo-600 text-sm font-semibold" data-range="14">14D</button>
+              <button class="trendRange px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-sm" data-range="30">30D</button>
+            </div>
+            <select id="trendMetric" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 outline-none text-sm">
+              <option value="Deposit">Deposit</option>
+              <option value="Turnover">Turnover</option>
+              <option value="Company Win">Company Win</option>
+              <option value="Margin %">Margin %</option>
+              <option value="Bonus">Bonus</option>
+              <option value="Bonus %">Bonus %</option>
+              <option value="Net Cash">Net Cash</option>
+              <option value="Turnover x">Turnover x</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div class="bg-slate-950 border border-slate-800 rounded-2xl p-4">
+            <div class="text-xs text-slate-400">Change vs Yesterday</div>
+            <div class="mt-1 text-sm" id="deltaYesterday">—</div>
+          </div>
+          <div class="bg-slate-950 border border-slate-800 rounded-2xl p-4">
+            <div class="text-xs text-slate-400">Change vs 7-day Avg</div>
+            <div class="mt-1 text-sm" id="delta7avg">—</div>
+          </div>
+          <div class="bg-slate-950 border border-slate-800 rounded-2xl p-4">
+            <div class="text-xs text-slate-400">Insight</div>
+            <div class="mt-1 text-sm" id="insightText">—</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Vendor action center -->
+      <div id="vendorOptions" class="hidden bg-slate-900/50 border border-slate-800 rounded-2xl p-4 mb-5">
+        <div class="flex flex-col lg:flex-row gap-3 lg:items-center lg:justify-between">
+          <div class="flex items-center gap-2">
+            <div class="text-sm font-semibold">Vendor Action Center</div>
+            <div class="flex flex-wrap gap-2" id="statusChips"></div>
+          </div>
+
+          <div class="flex flex-col md:flex-row gap-2 md:items-center">
+            <div class="text-xs text-slate-400">Sort by</div>
+            <select id="vendorSort" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 outline-none text-sm">
+              <option value="priority">Priority Score</option>
+              <option value="lossPct">Loss %</option>
+              <option value="stake">Stake</option>
+              <option value="absWinLoss">Abs Win/Loss</option>
+              <option value="players">Players</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="mt-3 bg-slate-950 border border-slate-800 rounded-2xl p-4">
+          <div class="text-sm font-semibold">Top 5 Critical Vendors (Selected Date)</div>
+          <div class="text-xs text-slate-400 mt-1">Based on Priority Score = Stake × Loss%</div>
+          <div class="mt-3 overflow-auto">
+            <table class="min-w-full text-sm" id="topVendorsTable"></table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cards -->
+      <div id="cardsArea" class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-5"></div>
+
+      <!-- Chart + Table + Scoreboard -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+        <div class="lg:col-span-1 bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
+          <div class="flex items-center justify-between mb-3">
+            <div class="font-semibold" id="chartTitle">Overview</div>
+            <div class="text-xs text-slate-400" id="rowCount">—</div>
+          </div>
+          <canvas id="mainChart" height="220"></canvas>
+        </div>
+
+        <div class="lg:col-span-2 bg-slate-900/60 border border-slate-800 rounded-2xl p-4 overflow-hidden">
+          <div class="flex items-center justify-between mb-3">
+            <div class="font-semibold" id="tableTitle">Table</div>
+            <div class="text-xs text-slate-400" id="activeMeta">—</div>
+          </div>
+          <div class="overflow-auto rounded-xl border border-slate-800">
+            <table class="min-w-full text-sm" id="dataTable"></table>
+          </div>
+        </div>
+
+        <!-- Scoreboard (only for ALL Brands + Daily snapshot) -->
+        <div id="scoreboardWrap" class="hidden lg:col-span-3 bg-slate-900/60 border border-slate-800 rounded-2xl p-4 overflow-hidden">
+          <div class="flex items-center justify-between mb-3">
+            <div class="font-semibold">ALL Brands Scoreboard</div>
+            <div class="text-xs text-slate-400" id="scoreboardMeta">—</div>
+          </div>
+          <div class="overflow-auto rounded-xl border border-slate-800">
+            <table class="min-w-full text-sm" id="scoreboardTable"></table>
+          </div>
+          <div class="mt-3 text-xs text-slate-500">
+            Winner badges show which brand is best per metric on the selected date.
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+
+<script>
+/** =========================================================
+ * FILE MODE DETECTION
+ * ========================================================= */
+const IS_FILE = location.protocol === "file:";
+if (IS_FILE) document.getElementById("fileBlock").classList.remove("hidden");
+
+/** =========================================================
+ * CONFIG
+ * ========================================================= */
+const DEFAULT_PASSWORD = "MCW@2025";
+const AUTH_TTL_HOURS = 8;
+const CACHE_MINUTES = 8;
+
+const BRANDS = [
+  { key:"M1", name:"M1",
+    dailyCsv:"https://docs.google.com/spreadsheets/d/e/2PACX-1vQIOs9NKk6u02H3VsNVa4IJIPbIi8O51_nSVBm8NFm10B71IX2Rc8DQWQqhcSepQtSbqreRUEoZ2C5r/pub?gid=0&single=true&output=csv",
+    vendorCsv:"https://docs.google.com/spreadsheets/d/e/2PACX-1vQIOs9NKk6u02H3VsNVa4IJIPbIi8O51_nSVBm8NFm10B71IX2Rc8DQWQqhcSepQtSbqreRUEoZ2C5r/pub?gid=1820337889&single=true&output=csv"
+  },
+  { key:"M2", name:"M2",
+    dailyCsv:"https://docs.google.com/spreadsheets/d/e/2PACX-1vT3c_r0xwLU2s_kpQtyI2v5iWYhti3Wuj130-4WqyrZXlDCui8PZfGm-1SDddaWgDuCIHOM3JL8PNQv/pub?gid=0&single=true&output=csv",
+    vendorCsv:"https://docs.google.com/spreadsheets/d/e/2PACX-1vT3c_r0xwLU2s_kpQtyI2v5iWYhti3Wuj130-4WqyrZXlDCui8PZfGm-1SDddaWgDuCIHOM3JL8PNQv/pub?gid=1820337889&single=true&output=csv"
+  },
+  { key:"B1", name:"B1",
+    dailyCsv:"https://docs.google.com/spreadsheets/d/e/2PACX-1vRDtENnKnpQif9Ott8qaZ1eE6E3Td1oSjpi30ulQK-ZLSyI-am4Ssos8U-VNm-qYIq35YDxAwWTWteS/pub?gid=0&single=true&output=csv",
+    vendorCsv:"https://docs.google.com/spreadsheets/d/e/2PACX-1vRDtENnKnpQif9Ott8qaZ1eE6E3Td1oSjpi30ulQK-ZLSyI-am4Ssos8U-VNm-qYIq35YDxAwWTWteS/pub?gid=1820337889&single=true&output=csv"
+  },
+  { key:"B2", name:"B2",
+    dailyCsv:"https://docs.google.com/spreadsheets/d/e/2PACX-1vQ5YFM9q01Tz0UKq38kks-X1pftApbMx1HMq_GmrKF9JwkaFJaxKE5qLr-_4mm7RGazSm7QF8KpGmIj/pub?gid=0&single=true&output=csv",
+    vendorCsv:"https://docs.google.com/spreadsheets/d/e/2PACX-1vQ5YFM9q01Tz0UKq38kks-X1pftApbMx1HMq_GmrKF9JwkaFJaxKE5qLr-_4mm7RGazSm7QF8KpGmIj/pub?gid=1820337889&single=true&output=csv"
+  },
+  { key:"B3", name:"B3",
+    dailyCsv:"https://docs.google.com/spreadsheets/d/e/2PACX-1vQfZXMM-Mn95_itz4dGX7p1E7_soSLjf71y1Zy7j5qWStjr0K6GxbBsvPvaApzu9OyGENMOpgOY1AyV/pub?gid=0&single=true&output=csv",
+    vendorCsv:"https://docs.google.com/spreadsheets/d/e/2PACX-1vQfZXMM-Mn95_itz4dGX7p1E7_soSLjf71y1Zy7j5qWStjr0K6GxbBsvPvaApzu9OyGENMOpgOY1AyV/pub?gid=1820337889&single=true&output=csv"
+  },
+  { key:"B4", name:"B4",
+    dailyCsv:"https://docs.google.com/spreadsheets/d/e/2PACX-1vQj-O70q2eBmdx4yUYCMxWpqY0oOgbgEhqVpC3y4ckbO2zOVedz7Tm-OQ8ULzcvftX5co4J1c8Nt4xs/pub?gid=0&single=true&output=csv",
+    vendorCsv:"https://docs.google.com/spreadsheets/d/e/2PACX-1vQj-O70q2eBmdx4yUYCMxWpqY0oOgbgEhqVpC3y4ckbO2zOVedz7Tm-OQ8ULzcvftX5co4J1c8Nt4xs/pub?gid=1820337889&single=true&output=csv"
+  },
+  { key:"K1", name:"K1",
+    dailyCsv:"https://docs.google.com/spreadsheets/d/e/2PACX-1vS4XHPnvo1JWiNn1ZlT4ecGnMmiKZ-Z33U-OP_dDA40vw6kH8PGrn7SuXi7mQu2FAPoKFwgFO1tmkbL/pub?gid=0&single=true&output=csv",
+    vendorCsv:"https://docs.google.com/spreadsheets/d/e/2PACX-1vS4XHPnvo1JWiNn1ZlT4ecGnMmiKZ-Z33U-OP_dDA40vw6kH8PGrn7SuXi7mQu2FAPoKFwgFO1tmkbL/pub?gid=1820337889&single=true&output=csv"
+  },
+];
+
+const DAILY_STD = ["Date","Reg Users","1st Depositors","Conv %","Deposit","Withdrawal","Net Cash","Turnover","Company Win","Margin %","Bonus","Bonus %","Turnover x","Alert"];
+const VENDOR_STD = ["Date","Vendor","Game Type","Stake","Win/Loss","Loss %","Players","Status","Action","Notes"];
+
+/** App state */
+let currentDataset = "daily";
+let dailyView = "snapshot"; // snapshot | trend
+let trendDays = 14;
+let chartInstance = null;
+let currentHeaders = [];
+let filteredRows = [];
+let lastFetchedData = null; // {headers, rows, brandKey, dataset}
+
+/** vendor chips */
+const VENDOR_STATUSES = ["All","Dangerous","Risky","Normal","Healthy"];
+let vendorStatusFilter = "All";
+
+/** vendor card quick filter (clickable cards) */
+let vendorCardFilter = "All"; // Dangerous/Risky/Normal/Healthy/All
+
+/** =========================================================
+ * HELPERS
+ * ========================================================= */
+const $ = (id) => document.getElementById(id);
+
+function showLoading(msg="Fetching CSV…"){
+  $("loadingHint").textContent = msg;
+  $("loadingOverlay").classList.remove("hidden");
+}
+function hideLoading(){ $("loadingOverlay").classList.add("hidden"); }
+
+$("copyRunSteps").addEventListener("click", async () => {
+  const txt =
+`To run locally without "Failed to fetch":
+Option A (VS Code):
+1) Install Live Server extension
+2) Right click index.html -> Open with Live Server
+
+Option B (Python):
+1) Open terminal in the folder
+2) Run: python -m http.server 5500
+3) Open: http://localhost:5500/index.html
+
+Your Netlify link will also work.`;
+  try { await navigator.clipboard.writeText(txt); alert("Copied ✅"); } catch { alert(txt); }
+});
+
+function normalizeDate(v) {
+  const s = String(v || "").trim();
+  if (!s) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) return `${m[3]}-${String(m[1]).padStart(2,"0")}-${String(m[2]).padStart(2,"0")}`;
+  return s;
+}
+
+function parseCSV(text) {
+  // ✅ Remove UTF-8 BOM if present (fixes header like "﻿Date")
+  text = String(text || "").replace(/^\uFEFF/, "");
+
+  const rows = [];
+  let i=0, field="", row=[], inQuotes=false;
+
+  while (i < text.length) {
+    const c = text[i];
+
+    if (c === '"') {
+      if (inQuotes && text[i+1] === '"') { field += '"'; i++; }
+      else inQuotes = !inQuotes;
+    } else if (c === ',' && !inQuotes) {
+      row.push(field); field="";
+    } else if ((c === '\n' || c === '\r') && !inQuotes) {
+      if (field.length || row.length) { row.push(field); rows.push(row); }
+      field=""; row=[];
+      if (c === '\r' && text[i+1] === '\n') i++;
+    } else {
+      field += c;
+    }
+    i++;
+  }
+  if (field.length || row.length) { row.push(field); rows.push(row); }
+
+  return rows.filter(r => r.some(x => String(x||"").trim() !== ""));
+}
+
+function toNumber(v) {
+  if (v == null) return 0;
+  const s = String(v)
+    .replace(/^\uFEFF/, "")          // BOM
+    .replace(/[,\s৳%]/g, "")         // remove comma, spaces, currency, percent
+    .replace(/[()]/g, "");           // just in case (1,234) format
+  const n = Number(s);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function fmtNumber(n){ return Number(n || 0).toLocaleString(); }
+function fmtMoney(n){ return "৳" + Number(n || 0).toLocaleString(); }
+function fmtPct(n){ return (Number(n || 0)).toFixed(2) + "%"; }
+function safeDiv(a,b){ return b ? (a/b) : 0; }
+
+function setBadge(text){ $("userBadge").textContent = text; }
+function setLastUpdated() { $("lastUpdated").textContent = "Last update: " + new Date().toLocaleString(); }
+
+function badgeStatus(status) {
+  const s = String(status || "").toLowerCase();
+  let cls = "bg-slate-800 text-slate-200 border border-slate-700";
+  if (s.includes("danger")) cls = "bg-rose-600/25 text-rose-200 border border-rose-600/40";
+  else if (s.includes("risky")) cls = "bg-orange-600/25 text-orange-200 border border-orange-600/40";
+  else if (s.includes("normal")) cls = "bg-yellow-500/20 text-yellow-200 border border-yellow-500/40";
+  else if (s.includes("healthy")) cls = "bg-emerald-500/20 text-emerald-200 border border-emerald-500/40";
+  return `<span class="px-2 py-1 rounded-lg text-xs ${cls}">${status || "—"}</span>`;
+}
+
+/** date helpers */
+function dateToMs(d){ return new Date(d+"T00:00:00").getTime(); }
+function msToDate(ms){
+  const dt = new Date(ms);
+  const yyyy = dt.getFullYear();
+  const mm = String(dt.getMonth()+1).padStart(2,"0");
+  const dd = String(dt.getDate()).padStart(2,"0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+/** =========================================================
+ * ✅ HEADER ROBUST MAPPING (FIX for Loss% / Status / Action missing)
+ * ========================================================= */
+function normKey(s){
+  return String(s ?? "")
+    .replace(/^\uFEFF/, "")            // BOM
+    .trim()
+    .replace(/\s+/g, " ")             // collapse spaces
+    .replace(/[^\w%\/\.\- ]+/g, "")   // remove weird chars
+    .toLowerCase();
+}
+
+function buildHeaderAliasMap(dataset){
+  const std = dataset === "daily" ? DAILY_STD : VENDOR_STD;
+
+  // map normalized standard headers -> standard header
+  const map = new Map();
+  std.forEach(h => map.set(normKey(h), h));
+
+  // extra aliases that sometimes appear in sheets
+  const aliases = {
+    // Daily
+    "companywin": "Company Win",
+    "company win": "Company Win",
+    "margin%": "Margin %",
+    "margin %": "Margin %",
+    "bonus%": "Bonus %",
+    "bonus %": "Bonus %",
+    "turnoverx": "Turnover x",
+    "turnover x": "Turnover x",
+    "first depositors": "1st Depositors",
+    "1st depositor": "1st Depositors",
+    "1st depositors": "1st Depositors",
+    "regusers": "Reg Users",
+    "reg users": "Reg Users",
+    // Vendor
+    "loss%": "Loss %",
+    "loss %": "Loss %",
+    "winloss": "Win/Loss",
+    "win/loss": "Win/Loss",
+    "gametype": "Game Type",
+    "game type": "Game Type",
+  };
+
+  Object.keys(aliases).forEach(k => map.set(normKey(k), aliases[k]));
+  return map;
+}
+
+function canonicalizeGrid(grid, dataset){
+  const aliasMap = buildHeaderAliasMap(dataset);
+  const std = dataset === "daily" ? DAILY_STD : VENDOR_STD;
+
+  const rawHeaders = (grid[0] || []).map(h => String(h ?? "").replace(/^\uFEFF/, "").trim());
+  const indexByStd = new Map();
+
+  rawHeaders.forEach((h, idx) => {
+    const nk = normKey(h);
+    const canon = aliasMap.get(nk);
+    if (canon && !indexByStd.has(canon)) indexByStd.set(canon, idx);
+  });
+
+  // Build canonical headers in correct order (std)
+  const headers = [...std];
+
+  // Build canonical rows with only canonical keys (so later code always finds them)
+  const rows = grid.slice(1).map(r => {
+    const obj = {};
+    headers.forEach(h => {
+      const idx = indexByStd.get(h);
+      obj[h] = (idx != null ? (r[idx] ?? "") : "").toString().trim();
+    });
+    obj.__date = normalizeDate(obj["Date"]);
+    return obj;
+  });
+
+  return { headers, rows };
+}
+
+/** =========================================================
+ * PASSWORD + AUTH
+ * ========================================================= */
+function getCurrentPassword() {
+  return localStorage.getItem("mcw_pw_custom") || DEFAULT_PASSWORD;
+}
+function setCustomPassword(pw) { localStorage.setItem("mcw_pw_custom", pw); }
+function clearCustomPassword() { localStorage.removeItem("mcw_pw_custom"); }
+
+function setAuthMsg(msg){
+  const el = $("authMsg");
+  el.textContent = msg;
+  el.classList.remove("hidden");
+}
+function hideAuthMsg(){ $("authMsg").classList.add("hidden"); }
+
+function showApp(badgeText){
+  $("authGate").classList.add("hidden");
+  $("app").classList.remove("hidden");
+  $("logoutBtn").classList.remove("hidden");
+  $("changePwBtn").classList.remove("hidden");
+  setBadge(badgeText);
+}
+
+function logout(){
+  localStorage.removeItem("mcw_pw_auth");
+  localStorage.removeItem("mcw_pw_auth_time");
+  location.reload();
+}
+$("logoutBtn").addEventListener("click", logout);
+
+function isAuthed(){
+  const ok = localStorage.getItem("mcw_pw_auth") === "1";
+  const t  = Number(localStorage.getItem("mcw_pw_auth_time") || "0");
+  if(!ok || !t) return false;
+  return (Date.now() - t) <= (AUTH_TTL_HOURS * 3600 * 1000);
+}
+function setAuthed(){
+  localStorage.setItem("mcw_pw_auth", "1");
+  localStorage.setItem("mcw_pw_auth_time", String(Date.now()));
+}
+function tryLogin(){
+  hideAuthMsg();
+  const pw = $("pwInput").value || "";
+  if (pw !== getCurrentPassword()){
+    setAuthMsg("Wrong password. Please try again.");
+    return;
+  }
+  setAuthed();
+  showApp("Unlocked");
+  initApp();
+}
+$("loginBtn").addEventListener("click", tryLogin);
+$("pwInput").addEventListener("keydown", (e) => { if(e.key==="Enter") tryLogin(); });
+
+/** Change password modal */
+function openPwModal(){
+  $("pwModal").classList.remove("hidden");
+  $("pwCurrent").value = "";
+  $("pwNew").value = "";
+  $("pwNew2").value = "";
+  $("pwModalMsg").classList.add("hidden");
+}
+function closePwModal(){ $("pwModal").classList.add("hidden"); }
+$("changePwBtn").addEventListener("click", openPwModal);
+$("pwClose").addEventListener("click", closePwModal);
+
+$("pwResetDefault").addEventListener("click", () => {
+  clearCustomPassword();
+  const el = $("pwModalMsg");
+  el.textContent = `Password reset to default (${DEFAULT_PASSWORD}).`;
+  el.classList.remove("hidden");
+});
+$("pwSave").addEventListener("click", () => {
+  const cur = $("pwCurrent").value || "";
+  const n1 = $("pwNew").value || "";
+  const n2 = $("pwNew2").value || "";
+
+  const msg = $("pwModalMsg");
+  msg.classList.add("hidden");
+
+  if (cur !== getCurrentPassword()){
+    msg.textContent = "Current password is wrong.";
+    msg.classList.remove("hidden");
+    return;
+  }
+  if (n1.length < 6){
+    msg.textContent = "New password must be at least 6 characters.";
+    msg.classList.remove("hidden");
+    return;
+  }
+  if (n1 !== n2){
+    msg.textContent = "New password and confirmation do not match.";
+    msg.classList.remove("hidden");
+    return;
+  }
+  setCustomPassword(n1);
+  msg.textContent = "Password updated successfully (saved in this browser).";
+  msg.classList.remove("hidden");
+});
+
+/** =========================================================
+ * CACHE + FETCH
+ * ========================================================= */
+function cacheKey(brandKey, dataset){ return `mcw_cache_${brandKey}_${dataset}`; }
+function getCache(brandKey, dataset) {
+  try {
+    const raw = localStorage.getItem(cacheKey(brandKey, dataset));
+    if (!raw) return null;
+    const obj = JSON.parse(raw);
+    if (Date.now() - obj.time > CACHE_MINUTES*60*1000) return null;
+    return obj.data;
+  } catch { return null; }
+}
+function setCache(brandKey, dataset, data) {
+  try { localStorage.setItem(cacheKey(brandKey, dataset), JSON.stringify({time:Date.now(), data})); } catch {}
+}
+
+async function fetchBrandDataSingle(brandKey, dataset, force=false) {
+  if (IS_FILE) throw new Error("You are running from file://. Please use Live Server / localhost / Netlify.");
+
+  $("cacheInfo").textContent = force ? "FORCE" : `${CACHE_MINUTES} min`;
+
+  if (!force) {
+    const cached = getCache(brandKey, dataset);
+    if (cached) return cached;
+  }
+
+  const brand = BRANDS.find(b => b.key === brandKey);
+  const url = dataset === "daily" ? brand.dailyCsv : brand.vendorCsv;
+
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Fetch failed for ${brandKey} (${dataset}): ${res.status}`);
+
+  const text = await res.text();
+  const grid = parseCSV(text);
+
+  // ✅ Canonicalize headers so Loss%/Status/Action always work
+  const canon = canonicalizeGrid(grid, dataset);
+
+  const data = { headers: canon.headers, rows: canon.rows };
+  setCache(brandKey, dataset, data);
+  return data;
+}
+
+function normalizeToStdSchema(brandKey, dataset, rows, includeBrand) {
+  const std = dataset === "daily" ? DAILY_STD : VENDOR_STD;
+  const outHeaders = includeBrand ? ["Brand", ...std] : [...std];
+
+  const outRows = rows.map(r => {
+    const o = {};
+    if (includeBrand) o["Brand"] = brandKey;
+    for (const h of std) o[h] = (r[h] ?? "").trim();
+    o.__date = normalizeDate(o["Date"]);
+    return o;
+  });
+
+  return { headers: outHeaders, rows: outRows };
+}
+
+async function fetchBrandData(brandKey, dataset, force=false) {
+  if (brandKey !== "ALL") {
+    const d = await fetchBrandDataSingle(brandKey, dataset, force);
+    return normalizeToStdSchema(brandKey, dataset, d.rows, false);
+  }
+
+  const list = await Promise.all(
+    BRANDS.map(b =>
+      fetchBrandDataSingle(b.key, dataset, force)
+        .then(d => normalizeToStdSchema(b.key, dataset, d.rows, true))
+    )
+  );
+  return { headers: list[0].headers, rows: list.flatMap(x => x.rows) };
+}
+
+/** Prefetch other dataset for snappy switching */
+async function prefetchOtherDataset(brandKey){
+  const other = currentDataset === "daily" ? "vendor" : "daily";
+  try { await fetchBrandData(brandKey, other, false); } catch {}
+}
+
+/** =========================================================
+ * RENDER HELPERS
+ * ========================================================= */
+function renderTable(headers, rows) {
+  const table = $("dataTable");
+  const head = `
+    <thead class="bg-slate-950 sticky top-0">
+      <tr>
+        ${headers.map(h => `<th class="text-left px-3 py-2 border-b border-slate-800 text-xs text-slate-300">${h}</th>`).join("")}
+      </tr>
+    </thead>
+  `;
+
+  const bodyRows = rows.map(r => {
+    return `<tr class="odd:bg-slate-950/40 hover:bg-slate-800/30">
+      ${headers.map(h => {
+        const val = r[h] ?? "";
+        if (currentDataset === "vendor" && h.toLowerCase() === "status") {
+          return `<td class="px-3 py-2 border-b border-slate-900">${badgeStatus(val)}</td>`;
+        }
+        return `<td class="px-3 py-2 border-b border-slate-900 whitespace-nowrap">${val || "—"}</td>`;
+      }).join("")}
+    </tr>`;
+  }).join("");
+
+  table.innerHTML = head + `<tbody>${bodyRows}</tbody>`;
+}
+
+function renderChartDailySnapshot(rows, selectedDate, brandKey) {
+  const ctx = $("mainChart").getContext("2d");
+  if (chartInstance) chartInstance.destroy();
+
+  if (!selectedDate) {
+    chartInstance = new Chart(ctx, {
+      type: "bar",
+      data: { labels: ["Select Date"], datasets: [{ label: "—", data: [0] }] },
+      options: { responsive:true, plugins:{legend:{display:false}} }
+    });
+    return;
+  }
+
+  if (brandKey === "ALL") {
+    const dayRows = rows.filter(r => r.__date === selectedDate);
+    const labels = dayRows.map(r => r["Brand"]);
+    const data = dayRows.map(r => toNumber(r["Deposit"]));
+    chartInstance = new Chart(ctx, {
+      type: "bar",
+      data: { labels, datasets: [{ label: "Deposit", data }] },
+      options: { responsive:true, plugins:{legend:{display:false}} }
+    });
+  } else {
+    const row = rows.find(r => r.__date === selectedDate) || null;
+    const deposit = row ? toNumber(row["Deposit"]) : 0;
+    const withdraw = row ? toNumber(row["Withdrawal"]) : 0;
+    const turnover = row ? toNumber(row["Turnover"]) : 0;
+    const companyWin = row ? toNumber(row["Company Win"]) : 0;
+    const bonus = row ? toNumber(row["Bonus"]) : 0;
+
+    chartInstance = new Chart(ctx, {
+      type: "bar",
+      data: {
+        labels: ["Deposit","Withdrawal","Turnover","Company Win","Bonus"],
+        datasets: [{ label: "Value", data: [deposit, withdraw, turnover, companyWin, bonus] }]
+      },
+      options: { responsive:true, plugins:{legend:{display:false}} }
+    });
+  }
+}
+
+/** ✅ MULTI-LINE TREND: Deposit + Turnover + Company Win */
+function renderChartDailyTrend(rows, selectedDate, brandKey) {
+  const ctx = $("mainChart").getContext("2d");
+  if (chartInstance) chartInstance.destroy();
+
+  const dateMs = selectedDate ? dateToMs(selectedDate) : null;
+  if (!dateMs) return;
+
+  const startMs = dateMs - (trendDays-1) * 86400000;
+  const dates = [];
+  for (let ms = startMs; ms <= dateMs; ms += 86400000) dates.push(msToDate(ms));
+
+  const aggForDate = (d) => {
+    if (brandKey === "ALL") {
+      const dayRows = rows.filter(r => r.__date === d);
+      return {
+        dep: dayRows.reduce((a,r)=>a+toNumber(r["Deposit"]),0),
+        trn: dayRows.reduce((a,r)=>a+toNumber(r["Turnover"]),0),
+        win: dayRows.reduce((a,r)=>a+toNumber(r["Company Win"]),0),
+      };
+    } else {
+      const r = rows.find(x => x.__date === d) || null;
+      return {
+        dep: r ? toNumber(r["Deposit"]) : 0,
+        trn: r ? toNumber(r["Turnover"]) : 0,
+        win: r ? toNumber(r["Company Win"]) : 0,
+      };
+    }
+  };
+
+  const depSeries = dates.map(d => aggForDate(d).dep);
+  const trnSeries = dates.map(d => aggForDate(d).trn);
+  const winSeries = dates.map(d => aggForDate(d).win);
+
+  chartInstance = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: dates,
+      datasets: [
+        { label: "Deposit", data: depSeries, tension: 0.25 },
+        { label: "Turnover", data: trnSeries, tension: 0.25 },
+        { label: "Company Win", data: winSeries, tension: 0.25 },
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: true } },
+      scales: { x: { ticks: { maxTicksLimit: 6 } } }
+    }
+  });
+}
+
+function renderChartVendor(rows, selectedDate) {
+  const ctx = $("mainChart").getContext("2d");
+  if (chartInstance) chartInstance.destroy();
+
+  const dayRows = rows.filter(r => r.__date === selectedDate);
+  let dangerous=0, risky=0, normal=0, healthy=0;
+
+  dayRows.forEach(r => {
+    const s = String(r["Status"]||"").toLowerCase();
+    if (s.includes("danger")) dangerous++;
+    else if (s.includes("risky")) risky++;
+    else if (s.includes("normal")) normal++;
+    else if (s.includes("healthy")) healthy++;
+  });
+
+  // ✅ Correct colors (match status badges)
+  const colors = [
+    "rgba(244, 63, 94, 0.70)",   // Dangerous = red
+    "rgba(249, 115, 22, 0.70)",  // Risky = orange
+    "rgba(234, 179, 8, 0.70)",   // Normal = yellow
+    "rgba(16, 185, 129, 0.70)"   // Healthy = green
+  ];
+  const borderColors = [
+    "rgba(244, 63, 94, 1)",
+    "rgba(249, 115, 22, 1)",
+    "rgba(234, 179, 8, 1)",
+    "rgba(16, 185, 129, 1)"
+  ];
+
+  chartInstance = new Chart(ctx, {
+    type: "doughnut",
+    data: {
+      labels: ["Dangerous","Risky","Normal","Healthy"],
+      datasets: [{
+        data: [dangerous, risky, normal, healthy],
+        backgroundColor: colors,
+        borderColor: borderColors,
+        borderWidth: 1
+      }]
+    },
+    options: { responsive:true }
+  });
+}
+
+
+/** =========================================================
+ * INSIGHTS (Daily KPI)
+ * ========================================================= */
+function calcDailyRowAggregate(rows) {
+  const dep = rows.reduce((a,r)=>a+toNumber(r["Deposit"]),0);
+  const wd  = rows.reduce((a,r)=>a+toNumber(r["Withdrawal"]),0);
+  const net = rows.reduce((a,r)=>a+toNumber(r["Net Cash"]),0);
+  const trn = rows.reduce((a,r)=>a+toNumber(r["Turnover"]),0);
+  const win = rows.reduce((a,r)=>a+toNumber(r["Company Win"]),0);
+  const bns = rows.reduce((a,r)=>a+toNumber(r["Bonus"]),0);
+  const reg = rows.reduce((a,r)=>a+toNumber(r["Reg Users"]),0);
+  const fd  = rows.reduce((a,r)=>a+toNumber(r["1st Depositors"]),0);
+
+  return {
+    dep, wd, net, trn, win, bns, reg, fd,
+    conv: safeDiv(fd, reg) * 100,
+    margin: safeDiv(win, trn) * 100,
+    bonusPct: safeDiv(bns, dep) * 100,
+    tx: safeDiv(trn, dep)
+  };
+}
+
+function deltaText(curr, base, fmtFn) {
+  if (base === 0 && curr === 0) return "—";
+  if (base === 0) return `▲ ${fmtFn(curr)} (no baseline)`;
+  const diff = curr - base;
+  const pct = (diff / base) * 100;
+  const arrow = diff >= 0 ? "▲" : "▼";
+  return `${arrow} ${fmtFn(Math.abs(diff))} (${pct.toFixed(2)}%)`;
+}
+
+function computeDailyInsights(allRows, selectedDate, brandKey) {
+  const dMs = dateToMs(selectedDate);
+  const yDate = msToDate(dMs - 86400000);
+
+  const metric = $("trendMetric").value;
+
+  const pickValue = (rows) => {
+    if (brandKey === "ALL") {
+      const agg = calcDailyRowAggregate(rows);
+      if (metric === "Deposit") return agg.dep;
+      if (metric === "Turnover") return agg.trn;
+      if (metric === "Company Win") return agg.win;
+      if (metric === "Net Cash") return agg.net;
+      if (metric === "Bonus") return agg.bns;
+      if (metric === "Margin %") return agg.margin;
+      if (metric === "Bonus %") return agg.bonusPct;
+      if (metric === "Turnover x") return agg.tx;
+      return 0;
+    } else {
+      const r = rows[0] || null;
+      if (!r) return 0;
+      if (metric === "Margin %") return toNumber(r["Margin %"]);
+      if (metric === "Bonus %") return toNumber(r["Bonus %"]);
+      if (metric === "Turnover x") return toNumber(r["Turnover x"]);
+      return toNumber(r[metric]);
+    }
+  };
+
+  const dayRows = allRows.filter(r => r.__date === selectedDate);
+  const yRows = allRows.filter(r => r.__date === yDate);
+
+  const days = [];
+  for (let i=1; i<=7; i++) days.push(msToDate(dMs - i*86400000));
+  const avgValues = days.map(d => pickValue(allRows.filter(r => r.__date === d)));
+  const avgBase = avgValues.length ? avgValues.reduce((a,b)=>a+b,0) / avgValues.length : 0;
+
+  const currVal = pickValue(dayRows);
+  const yVal = pickValue(yRows);
+
+  const fmt = (v) => {
+    if (metric.includes("%")) return fmtPct(v);
+    if (metric === "Turnover x") return Number(v).toFixed(3);
+    if (["Deposit","Turnover","Company Win","Net Cash","Bonus"].includes(metric)) return fmtMoney(v);
+    return fmtNumber(v);
+  };
+
+  $("deltaYesterday").textContent = deltaText(currVal, yVal, (x)=>fmt(x));
+  $("delta7avg").textContent = deltaText(currVal, avgBase, (x)=>fmt(x));
+
+  let insight = "—";
+  if (brandKey === "ALL") {
+    const agg = calcDailyRowAggregate(dayRows);
+    if (agg.tx < 6) insight = `Turnover x looks low (${agg.tx.toFixed(2)}). Consider pushing traffic + retention promos to increase turnover.`;
+    else if (agg.margin < 2) insight = `Margin is low (${agg.margin.toFixed(2)}%). Bonus or payout pressure might be high—review bonus policy and high-risk vendors.`;
+    else if (agg.bonusPct > 30) insight = `Bonus % is high (${agg.bonusPct.toFixed(2)}%). Consider tightening bonus rules to protect profit.`;
+    else insight = `Stable day. Margin ${agg.margin.toFixed(2)}%, Bonus ${agg.bonusPct.toFixed(2)}%, Turnover x ${agg.tx.toFixed(2)}.`;
+  } else {
+    const r = dayRows[0] || null;
+    if (r) {
+      const tx = toNumber(r["Turnover x"]);
+      const margin = toNumber(r["Margin %"]);
+      const bonusPct = toNumber(r["Bonus %"]);
+      if (tx && tx < 6) insight = `Low Turnover x (${tx.toFixed(2)}). Try boosting engagement or tightening bonus abuse.`;
+      else if (margin && margin < 2) insight = `Low margin (${margin.toFixed(2)}%). Check vendor risk + bonus impact.`;
+      else if (bonusPct && bonusPct > 30) insight = `High bonus % (${bonusPct.toFixed(2)}%). Consider limiting bonus or adjusting wagering rules.`;
+      else insight = `Healthy KPIs. Margin ${margin.toFixed(2)}%, Turnover x ${tx.toFixed(2)}.`;
+    }
+  }
+  $("insightText").textContent = insight;
+}
+
+/** =========================================================
+ * VENDOR ACTION CENTER
+ * ========================================================= */
+function computeVendorPriority(r){
+  const stake = toNumber(r["Stake"]);
+  const lossPct = toNumber(r["Loss %"]);
+  return stake * (lossPct/100);
+}
+
+function renderVendorChips() {
+  const wrap = $("statusChips");
+  wrap.innerHTML = VENDOR_STATUSES.map(s => {
+    const active = (vendorStatusFilter === s);
+    const cls = active
+      ? "bg-indigo-600 border-indigo-400/40"
+      : "bg-slate-800 hover:bg-slate-700 border-slate-700";
+    return `<button class="statusChip px-3 py-1.5 rounded-xl border text-xs ${cls}" data-status="${s}">${s}</button>`;
+  }).join("");
+
+  wrap.querySelectorAll(".statusChip").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      vendorStatusFilter = btn.dataset.status;
+      vendorCardFilter = "All";
+      await refreshFiltersOnly();
+      renderVendorChips();
+    });
+  });
+}
+
+function renderTopVendors(dayRows) {
+  const headers = ["Vendor","Game Type","Stake","Win/Loss","Loss %","Players","Status","Priority"];
+  const sorted = [...dayRows].map(r => ({
+    ...r,
+    __priority: computeVendorPriority(r),
+    __absWL: Math.abs(toNumber(r["Win/Loss"]))
+  }));
+
+  const sortKey = $("vendorSort").value;
+  sorted.sort((a,b) => {
+    if (sortKey === "priority") return b.__priority - a.__priority;
+    if (sortKey === "lossPct") return toNumber(b["Loss %"]) - toNumber(a["Loss %"]);
+    if (sortKey === "stake") return toNumber(b["Stake"]) - toNumber(a["Stake"]);
+    if (sortKey === "absWinLoss") return b.__absWL - a.__absWL;
+    if (sortKey === "players") return toNumber(b["Players"]) - toNumber(a["Players"]);
+    return 0;
+  });
+
+  const top = sorted.slice(0,5);
+
+  const table = $("topVendorsTable");
+  table.innerHTML = `
+    <thead class="bg-slate-950 sticky top-0">
+      <tr>${headers.map(h=>`<th class="text-left px-3 py-2 border-b border-slate-800 text-xs text-slate-300">${h}</th>`).join("")}</tr>
+    </thead>
+    <tbody>
+      ${top.map(r=>`
+        <tr class="odd:bg-slate-950/40 hover:bg-slate-800/30">
+          <td class="px-3 py-2 border-b border-slate-900">${r["Vendor"]||"—"}</td>
+          <td class="px-3 py-2 border-b border-slate-900">${r["Game Type"]||"—"}</td>
+          <td class="px-3 py-2 border-b border-slate-900 whitespace-nowrap">${r["Stake"]||"—"}</td>
+          <td class="px-3 py-2 border-b border-slate-900 whitespace-nowrap">${r["Win/Loss"]||"—"}</td>
+          <td class="px-3 py-2 border-b border-slate-900">${r["Loss %"]||"—"}</td>
+          <td class="px-3 py-2 border-b border-slate-900">${r["Players"]||"—"}</td>
+          <td class="px-3 py-2 border-b border-slate-900">${badgeStatus(r["Status"])}</td>
+          <td class="px-3 py-2 border-b border-slate-900 whitespace-nowrap">${fmtMoney(r.__priority)}</td>
+        </tr>
+      `).join("")}
+    </tbody>
+  `;
+}
+
+/** =========================================================
+ * SCOREBOARD (ALL Brands, Daily)
+ * ========================================================= */
+function renderScoreboard(allRows, selectedDate){
+  const wrap = $("scoreboardWrap");
+  const table = $("scoreboardTable");
+  const meta = $("scoreboardMeta");
+
+  if ($("brandSelect").value !== "ALL" || currentDataset !== "daily" || dailyView !== "snapshot" || !selectedDate) {
+    wrap.classList.add("hidden");
+    return;
+  }
+
+  const dayRows = allRows.filter(r => r.__date === selectedDate);
+
+  const map = new Map();
+  dayRows.forEach(r => { if (!map.has(r["Brand"])) map.set(r["Brand"], r); });
+  const rows = [...map.values()];
+
+  const metrics = [
+    { key:"Deposit", label:"Deposit", type:"money", get:(r)=>toNumber(r["Deposit"]) },
+    { key:"Turnover", label:"Turnover", type:"money", get:(r)=>toNumber(r["Turnover"]) },
+    { key:"Company Win", label:"Company Win", type:"money", get:(r)=>toNumber(r["Company Win"]) },
+    { key:"Margin %", label:"Margin %", type:"pct", get:(r)=>toNumber(r["Margin %"]) },
+    { key:"Bonus %", label:"Bonus %", type:"pct", get:(r)=>toNumber(r["Bonus %"]) },
+    { key:"Turnover x", label:"Turnover x", type:"x", get:(r)=>toNumber(r["Turnover x"]) },
+  ];
+
+  const winners = {};
+  metrics.forEach(m => {
+    let bestBrand = null;
+    let bestVal = -Infinity;
+    rows.forEach(r => {
+      const v = m.get(r);
+      if (v > bestVal) { bestVal = v; bestBrand = r["Brand"]; }
+    });
+    winners[m.key] = bestBrand;
+  });
+
+  rows.sort((a,b)=>toNumber(b["Deposit"])-toNumber(a["Deposit"]));
+
+  const headers = ["Brand","Reg Users","1st Depositors","Conv %", ...metrics.map(m=>m.label)];
+  table.innerHTML = `
+    <thead class="bg-slate-950 sticky top-0">
+      <tr>${headers.map(h=>`<th class="text-left px-3 py-2 border-b border-slate-800 text-xs text-slate-300">${h}</th>`).join("")}</tr>
+    </thead>
+    <tbody>
+      ${rows.map(r=>{
+        const brand = r["Brand"];
+        const badge = () => `<span class="ml-2 px-2 py-0.5 rounded-lg text-[10px] bg-emerald-500/20 border border-emerald-500/40 text-emerald-200">WIN</span>`;
+        const fmtMetric = (m) => {
+          const v = m.get(r);
+          let out = "—";
+          if (m.type==="money") out = fmtMoney(v);
+          else if (m.type==="pct") out = fmtPct(v);
+          else if (m.type==="x") out = Number(v||0).toFixed(3);
+          const win = (winners[m.key] === brand);
+          return `${out}${win?badge():""}`;
+        };
+
+        return `
+          <tr class="odd:bg-slate-950/40 hover:bg-slate-800/30">
+            <td class="px-3 py-2 border-b border-slate-900 font-semibold">${brand}</td>
+            <td class="px-3 py-2 border-b border-slate-900">${r["Reg Users"]||"—"}</td>
+            <td class="px-3 py-2 border-b border-slate-900">${r["1st Depositors"]||"—"}</td>
+            <td class="px-3 py-2 border-b border-slate-900">${r["Conv %"]||"—"}</td>
+            ${metrics.map(m=>`<td class="px-3 py-2 border-b border-slate-900 whitespace-nowrap">${fmtMetric(m)}</td>`).join("")}
+          </tr>
+        `;
+      }).join("")}
+    </tbody>
+  `;
+
+  meta.textContent = `Date: ${selectedDate} · Sorted by Deposit`;
+  wrap.classList.remove("hidden");
+}
+
+/** =========================================================
+ * APPLY FILTERS + RENDER
+ * ========================================================= */
+async function refreshFiltersOnly(){
+  if (!lastFetchedData) return;
+  const { headers, rows, brandKey, dataset } = lastFetchedData;
+
+  const date = $("dateSelect").value;
+  const q = $("searchBox").value.trim().toLowerCase();
+
+  let out = rows;
+
+  if (date) out = out.filter(r => r.__date === date);
+
+  if (dataset === "vendor") {
+    if (vendorCardFilter !== "All") {
+      out = out.filter(r => String(r["Status"]||"").toLowerCase().includes(vendorCardFilter.toLowerCase()));
+    }
+    if (vendorStatusFilter !== "All") {
+      out = out.filter(r => String(r["Status"]||"").toLowerCase().includes(vendorStatusFilter.toLowerCase()));
+    }
+  }
+
+  if (q) out = out.filter(r => headers.some(h => String(r[h] ?? "").toLowerCase().includes(q)));
+
+  if (dataset === "daily" && brandKey === "ALL" && dailyView === "snapshot" && date) {
+    const seen = new Set();
+    out = out.filter(r => {
+      const k = r["Brand"] || "";
+      if (!k) return true;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  }
+
+  filteredRows = out;
+
+  $("rowCount").textContent = `${filteredRows.length} rows`;
+  $("activeMeta").textContent = `Brand: ${brandKey} · Dataset: ${dataset.toUpperCase()} · Date: ${date || "All"}`;
+  $("metaInfo").textContent = `${brandKey} · ${dataset.toUpperCase()} · ${date || "All dates"}`;
+
+  renderCards(rows, date, brandKey);
+  renderMainChart(rows, date, brandKey);
+  renderTable(headers, filteredRows);
+
+  if (dataset === "vendor" && date) {
+    const dayRows = rows.filter(r => r.__date === date);
+    renderTopVendors(dayRows);
+  }
+
+  renderScoreboard(rows, date);
+
+  if (dataset === "daily" && date) computeDailyInsights(rows, date, brandKey);
+}
+
+function vendorCardWrap(title, value, statusKey) {
+  const active = vendorCardFilter.toLowerCase() === statusKey.toLowerCase();
+  const ring = active ? "ring-2 ring-indigo-500/70" : "";
+  return `
+    <button
+      class="w-full text-left bg-slate-900/60 border border-slate-800 rounded-2xl p-4 hover:bg-slate-800/30 transition ${ring}"
+      data-vstatus="${statusKey}"
+      title="Click to filter table by ${statusKey}">
+      <div class="text-xs text-slate-400">${title}</div>
+      <div class="mt-1 text-lg font-semibold">${value ?? "—"}</div>
+      <div class="mt-1 text-[11px] text-slate-500">${active ? "Filter: ON (click again to clear)" : "Click to filter"}</div>
+    </button>
+  `;
+}
+
+function renderCards(rows, selectedDate, brandKey) {
+  const cards = [];
+
+  if (!selectedDate) {
+    cards.push(`
+      <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
+        <div class="text-xs text-slate-400">Select Date</div>
+        <div class="mt-1 text-lg font-semibold">Please choose a date.</div>
+      </div>
+    `);
+    $("cardsArea").innerHTML = cards.join("");
+    return;
+  }
+
+  if (currentDataset === "daily") {
+    $("chartTitle").textContent = (dailyView === "trend")
+      ? (brandKey === "ALL" ? "Daily KPI Trend (ALL Brands)" : "Daily KPI Trend")
+      : (brandKey === "ALL" ? "Daily KPI (ALL Brands)" : "Daily KPI Snapshot");
+
+    $("tableTitle").textContent = (brandKey === "ALL" && dailyView === "snapshot")
+      ? "Daily KPI Rows (One per Brand)"
+      : "Daily KPI Rows (Filtered)";
+
+    const dayRows = rows.filter(r => r.__date === selectedDate);
+
+    if (brandKey === "ALL") {
+      const agg = calcDailyRowAggregate(dayRows);
+      let alert = "";
+      if (agg.tx < 6) alert = "Low Turnover x";
+      else if (agg.margin < 2) alert = "Low Margin";
+      else if (agg.bonusPct > 30) alert = "High Bonus %";
+
+      const items = [
+        ["Deposit", fmtMoney(agg.dep)],
+        ["Withdrawal", fmtMoney(agg.wd)],
+        ["Net Cash", fmtMoney(agg.net)],
+        ["Turnover", fmtMoney(agg.trn)],
+        ["Company Win", fmtMoney(agg.win)],
+        ["Margin %", fmtPct(agg.margin)],
+        ["Bonus", fmtMoney(agg.bns)],
+        ["Bonus %", fmtPct(agg.bonusPct)],
+        ["Reg Users", fmtNumber(agg.reg)],
+        ["1st Depositors", fmtNumber(agg.fd)],
+        ["Conv %", fmtPct(agg.conv)],
+        ["Turnover x", agg.tx.toFixed(3)],
+        ["Alert", alert || "—"],
+      ];
+
+      items.forEach(([k,v]) => cards.push(`
+        <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
+          <div class="text-xs text-slate-400">${k}</div>
+          <div class="mt-1 text-lg font-semibold">${v ?? "—"}</div>
+        </div>
+      `));
+    } else {
+      const row = dayRows[0] || null;
+      const items = [
+        ["Deposit", row ? row["Deposit"] : "—"],
+        ["Withdrawal", row ? row["Withdrawal"] : "—"],
+        ["Net Cash", row ? row["Net Cash"] : "—"],
+        ["Turnover", row ? row["Turnover"] : "—"],
+        ["Company Win", row ? row["Company Win"] : "—"],
+        ["Margin %", row ? row["Margin %"] : "—"],
+        ["Bonus", row ? row["Bonus"] : "—"],
+        ["Bonus %", row ? row["Bonus %"] : "—"],
+        ["Reg Users", row ? row["Reg Users"] : "—"],
+        ["1st Depositors", row ? row["1st Depositors"] : "—"],
+        ["Conv %", row ? row["Conv %"] : "—"],
+        ["Turnover x", row ? row["Turnover x"] : "—"],
+        ["Alert", row ? (row["Alert"] || "—") : "—"],
+      ];
+      items.forEach(([k,v]) => cards.push(`
+        <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
+          <div class="text-xs text-slate-400">${k}</div>
+          <div class="mt-1 text-lg font-semibold">${v ?? "—"}</div>
+        </div>
+      `));
+    }
+
+  } else {
+    $("chartTitle").textContent = brandKey === "ALL" ? "Vendor Risk Split (ALL Brands)" : "Vendor Risk Split";
+    $("tableTitle").textContent = "Vendor Monitor Rows (Filtered)";
+
+    const dayRows = rows.filter(r => r.__date === selectedDate);
+    let dangerous=0, risky=0, normal=0, healthy=0;
+
+    dayRows.forEach(r => {
+      const s = String(r["Status"]||"").toLowerCase();
+      if (s.includes("danger")) dangerous++;
+      else if (s.includes("risky")) risky++;
+      else if (s.includes("normal")) normal++;
+      else if (s.includes("healthy")) healthy++;
+    });
+
+    cards.push(vendorCardWrap("Dangerous", String(dangerous), "Dangerous"));
+    cards.push(vendorCardWrap("Risky", String(risky), "Risky"));
+    cards.push(vendorCardWrap("Normal", String(normal), "Normal"));
+    cards.push(vendorCardWrap("Healthy", String(healthy), "Healthy"));
+  }
+
+  $("cardsArea").innerHTML = cards.join("");
+
+  if (currentDataset === "vendor") {
+    document.querySelectorAll('#cardsArea [data-vstatus]').forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const s = btn.getAttribute("data-vstatus");
+        vendorCardFilter = (vendorCardFilter.toLowerCase() === s.toLowerCase()) ? "All" : s;
+        vendorStatusFilter = "All";
+        renderVendorChips();
+        await refreshFiltersOnly();
+      });
+    });
+  }
+}
+
+function renderMainChart(rows, selectedDate, brandKey) {
+  if (!selectedDate) return;
+
+  if (currentDataset === "daily") {
+    if (dailyView === "trend") renderChartDailyTrend(rows, selectedDate, brandKey);
+    else renderChartDailySnapshot(rows, selectedDate, brandKey);
+  } else {
+    renderChartVendor(rows, selectedDate);
+  }
+}
+
+/** =========================================================
+ * LOAD + RENDER MAIN
+ * ========================================================= */
+function setDatasetButtons() {
+  if (currentDataset === "daily") {
+    $("btnDaily").className = "flex-1 px-3 py-2 rounded-xl border border-slate-800 bg-indigo-600 font-medium";
+    $("btnVendor").className = "flex-1 px-3 py-2 rounded-xl border border-slate-800 bg-slate-950 font-medium";
+    $("dailyOptions").classList.remove("hidden");
+    $("vendorOptions").classList.add("hidden");
+  } else {
+    $("btnVendor").className = "flex-1 px-3 py-2 rounded-xl border border-slate-800 bg-indigo-600 font-medium";
+    $("btnDaily").className = "flex-1 px-3 py-2 rounded-xl border border-slate-800 bg-slate-950 font-medium";
+    $("vendorOptions").classList.remove("hidden");
+    $("dailyOptions").classList.add("hidden");
+  }
+}
+
+function setDailyViewButtons(){
+  if (dailyView === "snapshot") {
+    $("viewSnapshot").className = "px-3 py-2 rounded-xl bg-indigo-600 text-sm font-medium";
+    $("viewTrend").className = "px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-sm font-medium";
+    $("trendControls").classList.add("hidden");
+  } else {
+    $("viewTrend").className = "px-3 py-2 rounded-xl bg-indigo-600 text-sm font-medium";
+    $("viewSnapshot").className = "px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-sm font-medium";
+    $("trendControls").classList.remove("hidden");
+  }
+
+  document.querySelectorAll(".trendRange").forEach(b=>{
+    const r = Number(b.dataset.range);
+    if (r === trendDays) b.className = "trendRange px-3 py-2 rounded-xl bg-indigo-600 text-sm font-semibold";
+    else b.className = "trendRange px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-sm";
+  });
+}
+
+function computeLastAvailableDate(rows){
+  const dates = rows.map(r=>r.__date).filter(Boolean).sort();
+  return dates.length ? dates[dates.length-1] : "";
+}
+
+async function loadAndRender(force=false) {
+  const brandKey = $("brandSelect").value;
+
+  showLoading(force ? "Refreshing (force fetch)..." : "Loading from cache/CSV...");
+  try {
+    const data = await fetchBrandData(brandKey, currentDataset, force);
+    currentHeaders = data.headers;
+
+    lastFetchedData = { headers: data.headers, rows: data.rows, brandKey, dataset: currentDataset };
+
+    const lastAvail = computeLastAvailableDate(data.rows);
+    $("lastAvail").textContent = lastAvail || "—";
+
+    if (!$("dateSelect").value && lastAvail) $("dateSelect").value = lastAvail;
+
+    if ($("dateSelect").value && lastAvail) {
+      const chosen = $("dateSelect").value;
+      const exists = data.rows.some(r=>r.__date===chosen);
+      if (!exists) $("dateSelect").value = lastAvail;
+    }
+
+    setLastUpdated();
+    await refreshFiltersOnly();
+
+    prefetchOtherDataset(brandKey);
+
+  } catch(err) {
+    alert("Error:\n\n" + err.message + "\n\nFix: open via Netlify / localhost (Live Server).");
+  } finally {
+    hideLoading();
+  }
+}
+
+/** =========================================================
+ * EXPORTS
+ * ========================================================= */
+function exportCSV(headers, rows, filename) {
+  const esc = (x) => `"${String(x ?? "").replace(/"/g,'""')}"`;
+  const lines = [];
+  lines.push(headers.map(esc).join(","));
+  rows.forEach(r => lines.push(headers.map(h => esc(r[h])).join(",")));
+
+  const blob = new Blob([lines.join("\n")], { type:"text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+$("exportBtn").addEventListener("click", () => {
+  if (!currentHeaders.length) return;
+  const date = $("dateSelect").value || "all";
+  exportCSV(currentHeaders, filteredRows, `${$("brandSelect").value}_${currentDataset}_${date}.csv`);
+});
+
+$("exportCombinedBtn").addEventListener("click", async () => {
+  const brandKey = $("brandSelect").value;
+  const date = $("dateSelect").value || "all";
+
+  showLoading("Exporting combined…");
+  try {
+    const daily = await fetchBrandData(brandKey, "daily", false);
+    const vendor = await fetchBrandData(brandKey, "vendor", false);
+
+    const dailyRows = date==="all" ? daily.rows : daily.rows.filter(r=>r.__date===date);
+    const vendorRows = date==="all" ? vendor.rows : vendor.rows.filter(r=>r.__date===date);
+
+    exportCSV(daily.headers, dailyRows, `${brandKey}_daily_${date}.csv`);
+    exportCSV(vendor.headers, vendorRows, `${brandKey}_vendor_${date}.csv`);
+  } catch(e) {
+    alert("Export combined failed: " + e.message);
+  } finally {
+    hideLoading();
+  }
+});
+
+$("printBtn").addEventListener("click", () => window.print());
+
+/** =========================================================
+ * CONTROLS INIT
+ * ========================================================= */
+function initControls() {
+  $("brandSelect").innerHTML = [
+    `<option value="ALL">ALL Brands</option>`,
+    ...BRANDS.map(b => `<option value="${b.key}">${b.name}</option>`)
+  ].join("");
+
+  setDatasetButtons();
+
+  $("btnDaily").addEventListener("click", async () => {
+    currentDataset = "daily";
+    vendorStatusFilter = "All";
+    vendorCardFilter = "All";
+    $("searchBox").value = "";
+    setDatasetButtons();
+    await loadAndRender(false);
+  });
+
+  $("btnVendor").addEventListener("click", async () => {
+    currentDataset = "vendor";
+    $("searchBox").value = "";
+    setDatasetButtons();
+    renderVendorChips();
+    await loadAndRender(false);
+  });
+
+  $("brandSelect").addEventListener("change", async () => {
+    $("searchBox").value = "";
+    vendorCardFilter = "All";
+    vendorStatusFilter = "All";
+    renderVendorChips();
+    await loadAndRender(false);
+  });
+
+  $("dateSelect").addEventListener("change", async () => {
+    await refreshFiltersOnly();
+  });
+
+  $("searchBox").addEventListener("input", async () => {
+    await refreshFiltersOnly();
+  });
+
+  $("refreshBtn").addEventListener("click", () => loadAndRender(true));
+
+  $("quickLatest").addEventListener("click", async () => {
+    if (!lastFetchedData) return;
+    const last = computeLastAvailableDate(lastFetchedData.rows);
+    if (last) $("dateSelect").value = last;
+    await refreshFiltersOnly();
+  });
+  $("quickYesterday").addEventListener("click", async () => {
+    if (!$("dateSelect").value) return;
+    $("dateSelect").value = msToDate(dateToMs($("dateSelect").value) - 86400000);
+    await refreshFiltersOnly();
+  });
+  $("quick7d").addEventListener("click", async () => {
+    if (!$("dateSelect").value) return;
+    $("dateSelect").value = msToDate(dateToMs($("dateSelect").value) - 7*86400000);
+    await refreshFiltersOnly();
+  });
+
+  $("viewSnapshot").addEventListener("click", async () => {
+    dailyView = "snapshot";
+    setDailyViewButtons();
+    await refreshFiltersOnly();
+  });
+  $("viewTrend").addEventListener("click", async () => {
+    dailyView = "trend";
+    setDailyViewButtons();
+    await refreshFiltersOnly();
+  });
+
+  document.querySelectorAll(".trendRange").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      trendDays = Number(btn.dataset.range);
+      setDailyViewButtons();
+      if (dailyView !== "trend") return;
+      await refreshFiltersOnly();
+    });
+  });
+
+  $("trendMetric").addEventListener("change", async () => {
+    if (currentDataset === "daily" && $("dateSelect").value) {
+      await refreshFiltersOnly();
+    }
+  });
+
+  $("vendorSort").addEventListener("change", async () => {
+    if (currentDataset === "vendor") await refreshFiltersOnly();
+  });
+
+  renderVendorChips();
+  setDailyViewButtons();
+}
+
+/** =========================================================
+ * BOOT
+ * ========================================================= */
+function initApp() {
+  initControls();
+  loadAndRender(false);
+}
+
+window.addEventListener("load", () => {
+  if (isAuthed()) {
+    showApp("Unlocked");
+    initApp();
+    return;
+  }
+  setBadge("Locked");
+});
+</script>
+</body>
+</html>
 
