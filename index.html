@@ -514,12 +514,16 @@ function msToDate(ms){
  * ========================================================= */
 function normKey(s){
   return String(s ?? "")
-    .replace(/^\uFEFF/, "")            // BOM
+    .replace(/^\uFEFF/, "")                 // BOM
+    .replace(/[\u00A0]/g, " ")              // NBSP
+    .replace(/[\u2000-\u200B]/g, " ")       // thin/zero-width spaces
+    .replace(/[\u202F\u205F\u3000]/g, " ")  // narrow no-break / ideographic spaces
     .trim()
-    .replace(/\s+/g, " ")             // collapse spaces
-    .replace(/[^\w%\/\.\- ]+/g, "")   // remove weird chars
+    .replace(/\s+/g, " ")                   // collapse spaces
+    .replace(/[^\w%\/\.\- ]+/g, "")         // remove weird chars
     .toLowerCase();
 }
+
 
 function buildHeaderAliasMap(dataset){
   const std = dataset === "daily" ? DAILY_STD : VENDOR_STD;
@@ -530,7 +534,9 @@ function buildHeaderAliasMap(dataset){
 
   // extra aliases that sometimes appear in sheets
   const aliases = {
-    // Daily
+    // =====================
+    // Daily (existing + safe extras)
+    // =====================
     "companywin": "Company Win",
     "company win": "Company Win",
     "margin%": "Margin %",
@@ -544,48 +550,206 @@ function buildHeaderAliasMap(dataset){
     "1st depositors": "1st Depositors",
     "regusers": "Reg Users",
     "reg users": "Reg Users",
-    // Vendor
+        "turn over": "Turnover",
+    "turnover amount": "Turnover",
+    "turnover (৳)": "Turnover",
+    "total turnover": "Turnover",
+    "turnover value": "Turnover",
+
+
+    // =====================
+    // Vendor (MORE ROBUST)
+    // =====================
+    "date": "Date",
+    "report date": "Date",
+    "kpi date": "Date",
+    "day": "Date",
+
+    "vendor": "Vendor",
+    "vendor name": "Vendor",
+    "provider": "Vendor",
+    "game vendor": "Vendor",
+
+    "game type": "Game Type",
+    "gametype": "Game Type",
+    "type": "Game Type",
+    "product": "Game Type",
+    "category": "Game Type",
+
+    "stake": "Stake",
+    "stake amount": "Stake",
+    "bet": "Stake",
+    "bet amount": "Stake",
+    "turnover": "Stake", // (some sheets misuse turnover column in vendor monitor)
+
+    "win/loss": "Win/Loss",
+    "winloss": "Win/Loss",
+    "win loss": "Win/Loss",
+    "profit/loss": "Win/Loss",
+    "profit loss": "Win/Loss",
+    "p/l": "Win/Loss",
+    "net": "Win/Loss",
+    "net win": "Win/Loss",
+    "net win/loss": "Win/Loss",
+
     "loss%": "Loss %",
     "loss %": "Loss %",
-    "winloss": "Win/Loss",
-    "win/loss": "Win/Loss",
-    "gametype": "Game Type",
-    "game type": "Game Type",
+    "loss percentage": "Loss %",
+    "loss pct": "Loss %",
+    "loss rate": "Loss %",
+    "margin": "Loss %", // (some vendor tabs use margin as loss%)
+
+    "players": "Players",
+    "player": "Players",
+    "player count": "Players",
+    "no. players": "Players",
+    "no of players": "Players",
+    "users": "Players",
+    "user count": "Players",
+
+    "status": "Status",
+    "risk": "Status",
+    "risk status": "Status",
+    "health": "Status",
+
+    "action": "Action",
+    "suggested action": "Action",
+    "recommended action": "Action",
+    "next action": "Action",
+    "plan": "Action",
+
+    "notes": "Notes",
+    "note": "Notes",
+    "remarks": "Notes",
+    "comment": "Notes",
+    "comments": "Notes"
   };
 
   Object.keys(aliases).forEach(k => map.set(normKey(k), aliases[k]));
   return map;
 }
 
+
+function detectHeaderRow(grid, dataset){
+  const aliasMap = buildHeaderAliasMap(dataset);
+
+  // scan first N rows to find the best header row
+  const N = Math.min(12, grid.length);
+  let bestIdx = 0;
+  let bestScore = -1;
+
+  for (let i = 0; i < N; i++){
+    const row = grid[i] || [];
+    let score = 0;
+
+    for (const cell of row){
+      const nk = normKey(cell);
+      if (aliasMap.get(nk)) score++;
+    }
+
+    // prefer rows that match more expected headers
+    if (score > bestScore){
+      bestScore = score;
+      bestIdx = i;
+    }
+  }
+
+  // If nothing matched well, fallback to first row
+  // (threshold 3 is safe: Date+Vendor+Stake etc.)
+  if (bestScore < 3) bestIdx = 0;
+
+  return bestIdx;
+}
 function canonicalizeGrid(grid, dataset){
   const aliasMap = buildHeaderAliasMap(dataset);
   const std = dataset === "daily" ? DAILY_STD : VENDOR_STD;
 
-  const rawHeaders = (grid[0] || []).map(h => String(h ?? "").replace(/^\uFEFF/, "").trim());
+  // ✅ Auto-detect header row (handles title rows / blank rows)
+  const headerRowIndex = detectHeaderRow(grid, dataset);
+
+  const rawHeaders = (grid[headerRowIndex] || []).map(h =>
+    String(h ?? "").replace(/^\uFEFF/, "").trim()
+  );
+
   const indexByStd = new Map();
 
+  // 1) First pass: exact alias match
   rawHeaders.forEach((h, idx) => {
     const nk = normKey(h);
     const canon = aliasMap.get(nk);
     if (canon && !indexByStd.has(canon)) indexByStd.set(canon, idx);
   });
 
+  // 2) ✅ Heuristic pass (THIS FIXES YOUR TURNOVER ISSUE)
+  // If a sheet has "Turnover Amount" or "Turnover (৳)" etc, we still map it.
+  rawHeaders.forEach((h, idx) => {
+    const nk = normKey(h);
+
+    // Daily KPI heuristics
+    if (dataset === "daily") {
+      // Turnover x
+      if (!indexByStd.has("Turnover x") && nk.includes("turnover") && (nk.includes("x") || nk.includes("mult") || nk.includes("multiple"))) {
+        indexByStd.set("Turnover x", idx);
+      }
+
+      // Turnover (main) — must not steal Turnover x
+      if (!indexByStd.has("Turnover") && nk.includes("turnover") && !nk.includes("x") && !nk.includes("mult") && !nk.includes("multiple")) {
+        indexByStd.set("Turnover", idx);
+      }
+
+      // Company Win variations
+      if (!indexByStd.has("Company Win") && (nk.includes("company") && nk.includes("win"))) {
+        indexByStd.set("Company Win", idx);
+      }
+
+      // Net Cash variations
+      if (!indexByStd.has("Net Cash") && (nk.includes("net") && nk.includes("cash"))) {
+        indexByStd.set("Net Cash", idx);
+      }
+    }
+  });
+
   // Build canonical headers in correct order (std)
   const headers = [...std];
 
-  // Build canonical rows with only canonical keys (so later code always finds them)
-  const rows = grid.slice(1).map(r => {
-    const obj = {};
-    headers.forEach(h => {
-      const idx = indexByStd.get(h);
-      obj[h] = (idx != null ? (r[idx] ?? "") : "").toString().trim();
-    });
-    obj.__date = normalizeDate(obj["Date"]);
-    return obj;
+  // Build canonical rows starting AFTER the detected header row
+ const rows = grid.slice(headerRowIndex + 1).map(r => {
+  const obj = {};
+  headers.forEach(h => {
+    const idx = indexByStd.get(h);
+    obj[h] = (idx != null ? (r[idx] ?? "") : "").toString().trim();
   });
+
+  // ✅ Normalize date
+  obj.__date = normalizeDate(obj["Date"]);
+
+  // ✅ FIX: If Turnover column header is not detected, derive it from Deposit × Turnover x
+  if (dataset === "daily") {
+    const dep = toNumber(obj["Deposit"]);
+    const tx  = toNumber(obj["Turnover x"]);
+    const trn = toNumber(obj["Turnover"]);
+
+    // If Turnover missing/0 but we have Deposit + Turnover x → calculate Turnover
+    if ((!trn || trn === 0) && dep > 0 && tx > 0) {
+      const calc = dep * tx;
+      obj["Turnover"] = fmtMoney(calc); // shows like ৳1,875,008,138.37
+    }
+
+    // (Optional safety) If Turnover x missing but Turnover exists → calculate Turnover x
+    const trn2 = toNumber(obj["Turnover"]);
+    const tx2  = toNumber(obj["Turnover x"]);
+    if ((!tx2 || tx2 === 0) && dep > 0 && trn2 > 0) {
+      obj["Turnover x"] = (trn2 / dep).toFixed(3);
+    }
+  }
+
+  return obj;
+});
+
 
   return { headers, rows };
 }
+
 
 /** =========================================================
  * PASSWORD + AUTH
@@ -1620,4 +1784,3 @@ window.addEventListener("load", () => {
 </script>
 </body>
 </html>
-
