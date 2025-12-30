@@ -160,6 +160,47 @@
       </div>
     </div>
 
+    <!-- Vendor History Modal -->
+    <div id="vendorModal" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-50">
+      <div class="max-w-6xl mx-auto mt-16 bg-slate-950 border border-slate-800 rounded-2xl p-5 shadow-xl">
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <div class="text-lg font-semibold" id="vendorModalTitle">Vendor History</div>
+            <div class="text-xs text-slate-400" id="vendorModalMeta">—</div>
+          </div>
+          <button id="vendorModalClose" class="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800">✕ Close</button>
+        </div>
+
+        <div class="mt-4 flex flex-col md:flex-row gap-3 md:items-end">
+          <div class="flex-1">
+            <label class="text-xs text-slate-400">Filter inside vendor history</label>
+            <input id="vendorModalSearch" placeholder="Search in history (date / type / status / notes...)"
+              class="mt-1 w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 outline-none" />
+          </div>
+
+          <div class="w-full md:w-56">
+            <label class="text-xs text-slate-400">Sort by</label>
+            <select id="vendorModalSort" class="mt-1 w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 outline-none">
+              <option value="dateDesc">Date (Newest)</option>
+              <option value="dateAsc">Date (Oldest)</option>
+              <option value="stakeDesc">Stake (High)</option>
+              <option value="lossPctDesc">Loss % (High)</option>
+              <option value="absWLDesc">Abs Win/Loss (High)</option>
+              <option value="playersDesc">Players (High)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="mt-4 overflow-auto rounded-xl border border-slate-800">
+          <table class="min-w-full text-sm" id="vendorModalTable"></table>
+        </div>
+
+        <div class="mt-3 text-xs text-slate-500">
+          Tip: This shows the vendor across <b>all dates</b> from the same brand’s Vendor Monitor CSV.
+        </div>
+      </div>
+    </div>
+
     <!-- APP -->
     <div id="app" class="hidden">
 
@@ -392,19 +433,20 @@ const VENDOR_STD = ["Date","Vendor","Game Type","Stake","Win/Loss","Loss %","Pla
 
 /** App state */
 let currentDataset = "daily";
-let dailyView = "snapshot"; // snapshot | trend
+let dailyView = "snapshot";
 let trendDays = 14;
 let chartInstance = null;
 let currentHeaders = [];
 let filteredRows = [];
-let lastFetchedData = null; // {headers, rows, brandKey, dataset}
+let lastFetchedData = null;
+
+let vendorHistoryCache = new Map(); // cacheKey -> full vendor rows
+let activeVendorName = "";
 
 /** vendor chips */
 const VENDOR_STATUSES = ["All","Dangerous","Risky","Normal","Healthy"];
 let vendorStatusFilter = "All";
-
-/** vendor card quick filter (clickable cards) */
-let vendorCardFilter = "All"; // Dangerous/Risky/Normal/Healthy/All
+let vendorCardFilter = "All";
 
 /** =========================================================
  * HELPERS
@@ -443,9 +485,7 @@ function normalizeDate(v) {
 }
 
 function parseCSV(text) {
-  // ✅ Remove UTF-8 BOM if present (fixes header like "﻿Date")
   text = String(text || "").replace(/^\uFEFF/, "");
-
   const rows = [];
   let i=0, field="", row=[], inQuotes=false;
 
@@ -474,9 +514,9 @@ function parseCSV(text) {
 function toNumber(v) {
   if (v == null) return 0;
   const s = String(v)
-    .replace(/^\uFEFF/, "")          // BOM
-    .replace(/[,\s৳%]/g, "")         // remove comma, spaces, currency, percent
-    .replace(/[()]/g, "");           // just in case (1,234) format
+    .replace(/^\uFEFF/, "")
+    .replace(/[,\s৳%]/g, "")
+    .replace(/[()]/g, "");
   const n = Number(s);
   return Number.isFinite(n) ? n : 0;
 }
@@ -510,33 +550,26 @@ function msToDate(ms){
 }
 
 /** =========================================================
- * ✅ HEADER ROBUST MAPPING (FIX for Loss% / Status / Action missing)
+ * HEADER ROBUST MAPPING
  * ========================================================= */
 function normKey(s){
   return String(s ?? "")
-    .replace(/^\uFEFF/, "")                 // BOM
-    .replace(/[\u00A0]/g, " ")              // NBSP
-    .replace(/[\u2000-\u200B]/g, " ")       // thin/zero-width spaces
-    .replace(/[\u202F\u205F\u3000]/g, " ")  // narrow no-break / ideographic spaces
+    .replace(/^\uFEFF/, "")
+    .replace(/[\u00A0]/g, " ")
+    .replace(/[\u2000-\u200B]/g, " ")
+    .replace(/[\u202F\u205F\u3000]/g, " ")
     .trim()
-    .replace(/\s+/g, " ")                   // collapse spaces
-    .replace(/[^\w%\/\.\- ]+/g, "")         // remove weird chars
+    .replace(/\s+/g, " ")
+    .replace(/[^\w%\/\.\- ]+/g, "")
     .toLowerCase();
 }
 
-
 function buildHeaderAliasMap(dataset){
   const std = dataset === "daily" ? DAILY_STD : VENDOR_STD;
-
-  // map normalized standard headers -> standard header
   const map = new Map();
   std.forEach(h => map.set(normKey(h), h));
 
-  // extra aliases that sometimes appear in sheets
   const aliases = {
-    // =====================
-    // Daily (existing + safe extras)
-    // =====================
     "companywin": "Company Win",
     "company win": "Company Win",
     "margin%": "Margin %",
@@ -550,78 +583,50 @@ function buildHeaderAliasMap(dataset){
     "1st depositors": "1st Depositors",
     "regusers": "Reg Users",
     "reg users": "Reg Users",
-        "turn over": "Turnover",
+    "turn over": "Turnover",
     "turnover amount": "Turnover",
     "turnover (৳)": "Turnover",
     "total turnover": "Turnover",
     "turnover value": "Turnover",
 
-
-    // =====================
-    // Vendor (MORE ROBUST)
-    // =====================
     "date": "Date",
     "report date": "Date",
-    "kpi date": "Date",
     "day": "Date",
 
     "vendor": "Vendor",
     "vendor name": "Vendor",
     "provider": "Vendor",
-    "game vendor": "Vendor",
 
     "game type": "Game Type",
     "gametype": "Game Type",
     "type": "Game Type",
-    "product": "Game Type",
-    "category": "Game Type",
 
     "stake": "Stake",
-    "stake amount": "Stake",
     "bet": "Stake",
     "bet amount": "Stake",
-    "turnover": "Stake", // (some sheets misuse turnover column in vendor monitor)
 
     "win/loss": "Win/Loss",
     "winloss": "Win/Loss",
-    "win loss": "Win/Loss",
     "profit/loss": "Win/Loss",
-    "profit loss": "Win/Loss",
     "p/l": "Win/Loss",
-    "net": "Win/Loss",
-    "net win": "Win/Loss",
-    "net win/loss": "Win/Loss",
 
     "loss%": "Loss %",
     "loss %": "Loss %",
     "loss percentage": "Loss %",
     "loss pct": "Loss %",
-    "loss rate": "Loss %",
-    "margin": "Loss %", // (some vendor tabs use margin as loss%)
 
     "players": "Players",
     "player": "Players",
-    "player count": "Players",
-    "no. players": "Players",
-    "no of players": "Players",
     "users": "Players",
-    "user count": "Players",
 
     "status": "Status",
     "risk": "Status",
-    "risk status": "Status",
-    "health": "Status",
 
     "action": "Action",
-    "suggested action": "Action",
     "recommended action": "Action",
-    "next action": "Action",
-    "plan": "Action",
 
     "notes": "Notes",
-    "note": "Notes",
     "remarks": "Notes",
-    "comment": "Notes",
     "comments": "Notes"
   };
 
@@ -629,11 +634,8 @@ function buildHeaderAliasMap(dataset){
   return map;
 }
 
-
 function detectHeaderRow(grid, dataset){
   const aliasMap = buildHeaderAliasMap(dataset);
-
-  // scan first N rows to find the best header row
   const N = Math.min(12, grid.length);
   let bestIdx = 0;
   let bestScore = -1;
@@ -641,30 +643,20 @@ function detectHeaderRow(grid, dataset){
   for (let i = 0; i < N; i++){
     const row = grid[i] || [];
     let score = 0;
-
     for (const cell of row){
       const nk = normKey(cell);
       if (aliasMap.get(nk)) score++;
     }
-
-    // prefer rows that match more expected headers
-    if (score > bestScore){
-      bestScore = score;
-      bestIdx = i;
-    }
+    if (score > bestScore){ bestScore = score; bestIdx = i; }
   }
-
-  // If nothing matched well, fallback to first row
-  // (threshold 3 is safe: Date+Vendor+Stake etc.)
   if (bestScore < 3) bestIdx = 0;
-
   return bestIdx;
 }
+
 function canonicalizeGrid(grid, dataset){
   const aliasMap = buildHeaderAliasMap(dataset);
   const std = dataset === "daily" ? DAILY_STD : VENDOR_STD;
 
-  // ✅ Auto-detect header row (handles title rows / blank rows)
   const headerRowIndex = detectHeaderRow(grid, dataset);
 
   const rawHeaders = (grid[headerRowIndex] || []).map(h =>
@@ -673,83 +665,60 @@ function canonicalizeGrid(grid, dataset){
 
   const indexByStd = new Map();
 
-  // 1) First pass: exact alias match
   rawHeaders.forEach((h, idx) => {
     const nk = normKey(h);
     const canon = aliasMap.get(nk);
     if (canon && !indexByStd.has(canon)) indexByStd.set(canon, idx);
   });
 
-  // 2) ✅ Heuristic pass (THIS FIXES YOUR TURNOVER ISSUE)
-  // If a sheet has "Turnover Amount" or "Turnover (৳)" etc, we still map it.
   rawHeaders.forEach((h, idx) => {
     const nk = normKey(h);
-
-    // Daily KPI heuristics
     if (dataset === "daily") {
-      // Turnover x
-      if (!indexByStd.has("Turnover x") && nk.includes("turnover") && (nk.includes("x") || nk.includes("mult") || nk.includes("multiple"))) {
+      if (!indexByStd.has("Turnover x") && nk.includes("turnover") && (nk.includes("x") || nk.includes("mult"))) {
         indexByStd.set("Turnover x", idx);
       }
-
-      // Turnover (main) — must not steal Turnover x
-      if (!indexByStd.has("Turnover") && nk.includes("turnover") && !nk.includes("x") && !nk.includes("mult") && !nk.includes("multiple")) {
+      if (!indexByStd.has("Turnover") && nk.includes("turnover") && !nk.includes("x") && !nk.includes("mult")) {
         indexByStd.set("Turnover", idx);
       }
-
-      // Company Win variations
       if (!indexByStd.has("Company Win") && (nk.includes("company") && nk.includes("win"))) {
         indexByStd.set("Company Win", idx);
       }
-
-      // Net Cash variations
       if (!indexByStd.has("Net Cash") && (nk.includes("net") && nk.includes("cash"))) {
         indexByStd.set("Net Cash", idx);
       }
     }
   });
 
-  // Build canonical headers in correct order (std)
   const headers = [...std];
 
-  // Build canonical rows starting AFTER the detected header row
- const rows = grid.slice(headerRowIndex + 1).map(r => {
-  const obj = {};
-  headers.forEach(h => {
-    const idx = indexByStd.get(h);
-    obj[h] = (idx != null ? (r[idx] ?? "") : "").toString().trim();
+  const rows = grid.slice(headerRowIndex + 1).map(r => {
+    const obj = {};
+    headers.forEach(h => {
+      const idx = indexByStd.get(h);
+      obj[h] = (idx != null ? (r[idx] ?? "") : "").toString().trim();
+    });
+    obj.__date = normalizeDate(obj["Date"]);
+
+    if (dataset === "daily") {
+      const dep = toNumber(obj["Deposit"]);
+      const tx  = toNumber(obj["Turnover x"]);
+      const trn = toNumber(obj["Turnover"]);
+      if ((!trn || trn === 0) && dep > 0 && tx > 0) {
+        const calc = dep * tx;
+        obj["Turnover"] = fmtMoney(calc);
+      }
+      const trn2 = toNumber(obj["Turnover"]);
+      const tx2  = toNumber(obj["Turnover x"]);
+      if ((!tx2 || tx2 === 0) && dep > 0 && trn2 > 0) {
+        obj["Turnover x"] = (trn2 / dep).toFixed(3);
+      }
+    }
+
+    return obj;
   });
-
-  // ✅ Normalize date
-  obj.__date = normalizeDate(obj["Date"]);
-
-  // ✅ FIX: If Turnover column header is not detected, derive it from Deposit × Turnover x
-  if (dataset === "daily") {
-    const dep = toNumber(obj["Deposit"]);
-    const tx  = toNumber(obj["Turnover x"]);
-    const trn = toNumber(obj["Turnover"]);
-
-    // If Turnover missing/0 but we have Deposit + Turnover x → calculate Turnover
-    if ((!trn || trn === 0) && dep > 0 && tx > 0) {
-      const calc = dep * tx;
-      obj["Turnover"] = fmtMoney(calc); // shows like ৳1,875,008,138.37
-    }
-
-    // (Optional safety) If Turnover x missing but Turnover exists → calculate Turnover x
-    const trn2 = toNumber(obj["Turnover"]);
-    const tx2  = toNumber(obj["Turnover x"]);
-    if ((!tx2 || tx2 === 0) && dep > 0 && trn2 > 0) {
-      obj["Turnover x"] = (trn2 / dep).toFixed(3);
-    }
-  }
-
-  return obj;
-});
-
 
   return { headers, rows };
 }
-
 
 /** =========================================================
  * PASSWORD + AUTH
@@ -888,7 +857,6 @@ async function fetchBrandDataSingle(brandKey, dataset, force=false) {
   const text = await res.text();
   const grid = parseCSV(text);
 
-  // ✅ Canonicalize headers so Loss%/Status/Action always work
   const canon = canonicalizeGrid(grid, dataset);
 
   const data = { headers: canon.headers, rows: canon.rows };
@@ -926,14 +894,13 @@ async function fetchBrandData(brandKey, dataset, force=false) {
   return { headers: list[0].headers, rows: list.flatMap(x => x.rows) };
 }
 
-/** Prefetch other dataset for snappy switching */
 async function prefetchOtherDataset(brandKey){
   const other = currentDataset === "daily" ? "vendor" : "daily";
   try { await fetchBrandData(brandKey, other, false); } catch {}
 }
 
 /** =========================================================
- * RENDER HELPERS
+ * TABLE RENDER
  * ========================================================= */
 function renderTable(headers, rows) {
   const table = $("dataTable");
@@ -949,9 +916,21 @@ function renderTable(headers, rows) {
     return `<tr class="odd:bg-slate-950/40 hover:bg-slate-800/30">
       ${headers.map(h => {
         const val = r[h] ?? "";
+
+        if (currentDataset === "vendor" && h === "Vendor") {
+          const v = String(val || "").trim();
+          const b = String(r["Brand"] || "").trim(); // might exist in ALL mode
+          return `<td class="px-3 py-2 border-b border-slate-900">
+            <button class="vendorLink text-indigo-300 hover:text-indigo-200 underline underline-offset-2"
+              data-vendor="${v.replace(/"/g,'&quot;')}"
+              data-brand="${b.replace(/"/g,'&quot;')}">${v || "—"}</button>
+          </td>`;
+        }
+
         if (currentDataset === "vendor" && h.toLowerCase() === "status") {
           return `<td class="px-3 py-2 border-b border-slate-900">${badgeStatus(val)}</td>`;
         }
+
         return `<td class="px-3 py-2 border-b border-slate-900 whitespace-nowrap">${val || "—"}</td>`;
       }).join("")}
     </tr>`;
@@ -960,6 +939,138 @@ function renderTable(headers, rows) {
   table.innerHTML = head + `<tbody>${bodyRows}</tbody>`;
 }
 
+/** =========================================================
+ * ✅ VENDOR MODAL FUNCTIONS (FIXED / NO PLACEHOLDERS)
+ * ========================================================= */
+function openVendorModal(){
+  $("vendorModal").classList.remove("hidden");
+}
+function closeVendorModal(){
+  $("vendorModal").classList.add("hidden");
+  $("vendorModalSearch").value = "";
+  activeVendorName = "";
+}
+$("vendorModalClose").addEventListener("click", closeVendorModal);
+$("vendorModal").addEventListener("click", (e) => {
+  if (e.target === $("vendorModal")) closeVendorModal();
+});
+
+function modalCacheKey(brandKey){
+  return `vendor_all_${brandKey}`;
+}
+
+async function ensureVendorHistory(brandKey){
+  const key = modalCacheKey(brandKey);
+  if (vendorHistoryCache.has(key)) return vendorHistoryCache.get(key);
+
+  showLoading("Loading vendor history…");
+  try{
+    const d = await fetchBrandData(brandKey, "vendor", false);
+    vendorHistoryCache.set(key, d.rows);
+    return d.rows;
+  } finally {
+    hideLoading();
+  }
+}
+
+function renderVendorModalTable(rows){
+  const headers = ["Date","Vendor","Game Type","Stake","Win/Loss","Loss %","Players","Status","Action","Notes"];
+  $("vendorModalTable").innerHTML = `
+    <thead class="bg-slate-950 sticky top-0">
+      <tr>${headers.map(h=>`<th class="text-left px-3 py-2 border-b border-slate-800 text-xs text-slate-300">${h}</th>`).join("")}</tr>
+    </thead>
+    <tbody>
+      ${rows.map(r=>`
+        <tr class="odd:bg-slate-950/40 hover:bg-slate-800/30">
+          <td class="px-3 py-2 border-b border-slate-900 whitespace-nowrap">${r["Date"]||"—"}</td>
+          <td class="px-3 py-2 border-b border-slate-900 font-semibold">${r["Vendor"]||"—"}</td>
+          <td class="px-3 py-2 border-b border-slate-900">${r["Game Type"]||"—"}</td>
+          <td class="px-3 py-2 border-b border-slate-900 whitespace-nowrap">${r["Stake"]||"—"}</td>
+          <td class="px-3 py-2 border-b border-slate-900 whitespace-nowrap">${r["Win/Loss"]||"—"}</td>
+          <td class="px-3 py-2 border-b border-slate-900 whitespace-nowrap">${r["Loss %"]||"—"}</td>
+          <td class="px-3 py-2 border-b border-slate-900 whitespace-nowrap">${r["Players"]||"—"}</td>
+          <td class="px-3 py-2 border-b border-slate-900">${badgeStatus(r["Status"])}</td>
+          <td class="px-3 py-2 border-b border-slate-900">${r["Action"]||"—"}</td>
+          <td class="px-3 py-2 border-b border-slate-900">${r["Notes"]||"—"}</td>
+        </tr>
+      `).join("")}
+    </tbody>
+  `;
+}
+
+function applyVendorModalFilterSort(allRows){
+  const q = $("vendorModalSearch").value.trim().toLowerCase();
+  const sort = $("vendorModalSort").value;
+
+  let rows = allRows;
+
+  if (q) {
+    rows = rows.filter(r => {
+      return ["Date","Vendor","Game Type","Stake","Win/Loss","Loss %","Players","Status","Action","Notes"]
+        .some(k => String(r[k]||"").toLowerCase().includes(q));
+    });
+  }
+
+  const absWL = (r)=> Math.abs(toNumber(r["Win/Loss"]));
+  const stake = (r)=> toNumber(r["Stake"]);
+  const lossP = (r)=> toNumber(r["Loss %"]);
+  const players = (r)=> toNumber(r["Players"]);
+
+  rows = [...rows].sort((a,b)=>{
+    if (sort==="dateDesc") return (b.__date||"").localeCompare(a.__date||"");
+    if (sort==="dateAsc") return (a.__date||"").localeCompare(b.__date||"");
+    if (sort==="stakeDesc") return stake(b)-stake(a);
+    if (sort==="lossPctDesc") return lossP(b)-lossP(a);
+    if (sort==="absWLDesc") return absWL(b)-absWL(a);
+    if (sort==="playersDesc") return players(b)-players(a);
+    return 0;
+  });
+
+  return rows;
+}
+
+async function showVendorHistory(vendorName, brandFromRow){
+  const selectedBrand = $("brandSelect").value;
+  const brandKey = (selectedBrand === "ALL")
+    ? (brandFromRow || "")
+    : selectedBrand;
+
+  if (!brandKey){
+    alert("Please select a specific brand (not ALL) to view vendor history.");
+    return;
+  }
+
+  activeVendorName = vendorName;
+  $("vendorModalTitle").textContent = `Vendor History: ${vendorName}`;
+  $("vendorModalMeta").textContent = `Brand: ${brandKey} · All dates`;
+
+  openVendorModal();
+
+  const allVendorRows = await ensureVendorHistory(brandKey);
+  const onlyThisVendor = allVendorRows.filter(r => String(r["Vendor"]||"").trim().toLowerCase() === vendorName.trim().toLowerCase());
+
+  const rendered = applyVendorModalFilterSort(onlyThisVendor);
+  renderVendorModalTable(rendered);
+
+  // bind live filter/sort
+  const rerender = () => renderVendorModalTable(applyVendorModalFilterSort(onlyThisVendor));
+  $("vendorModalSearch").oninput = rerender;
+  $("vendorModalSort").onchange = rerender;
+}
+
+/** Global click handler for vendorLink (table + top vendors) */
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest(".vendorLink");
+  if (!btn) return;
+  const vendor = btn.dataset.vendor || "";
+  const brand = btn.dataset.brand || "";
+  if (!vendor) return;
+  showVendorHistory(vendor, brand);
+});
+
+/** =========================================================
+ * CHARTS + OTHER FUNCTIONS
+ * ========================================================= */
 function renderChartDailySnapshot(rows, selectedDate, brandKey) {
   const ctx = $("mainChart").getContext("2d");
   if (chartInstance) chartInstance.destroy();
@@ -1001,7 +1112,6 @@ function renderChartDailySnapshot(rows, selectedDate, brandKey) {
   }
 }
 
-/** ✅ MULTI-LINE TREND: Deposit + Turnover + Company Win */
 function renderChartDailyTrend(rows, selectedDate, brandKey) {
   const ctx = $("mainChart").getContext("2d");
   if (chartInstance) chartInstance.destroy();
@@ -1068,12 +1178,11 @@ function renderChartVendor(rows, selectedDate) {
     else if (s.includes("healthy")) healthy++;
   });
 
-  // ✅ Correct colors (match status badges)
   const colors = [
-    "rgba(244, 63, 94, 0.70)",   // Dangerous = red
-    "rgba(249, 115, 22, 0.70)",  // Risky = orange
-    "rgba(234, 179, 8, 0.70)",   // Normal = yellow
-    "rgba(16, 185, 129, 0.70)"   // Healthy = green
+    "rgba(244, 63, 94, 0.70)",
+    "rgba(249, 115, 22, 0.70)",
+    "rgba(234, 179, 8, 0.70)",
+    "rgba(16, 185, 129, 0.70)"
   ];
   const borderColors = [
     "rgba(244, 63, 94, 1)",
@@ -1096,7 +1205,6 @@ function renderChartVendor(rows, selectedDate) {
     options: { responsive:true }
   });
 }
-
 
 /** =========================================================
  * INSIGHTS (Daily KPI)
@@ -1257,7 +1365,11 @@ function renderTopVendors(dayRows) {
     <tbody>
       ${top.map(r=>`
         <tr class="odd:bg-slate-950/40 hover:bg-slate-800/30">
-          <td class="px-3 py-2 border-b border-slate-900">${r["Vendor"]||"—"}</td>
+          <td class="px-3 py-2 border-b border-slate-900">
+            <button class="vendorLink text-indigo-300 hover:text-indigo-200 underline underline-offset-2"
+              data-vendor="${String(r["Vendor"]||"").replace(/"/g,'&quot;')}"
+              data-brand="${String(r["Brand"]||"").replace(/"/g,'&quot;')}">${r["Vendor"]||"—"}</button>
+          </td>
           <td class="px-3 py-2 border-b border-slate-900">${r["Game Type"]||"—"}</td>
           <td class="px-3 py-2 border-b border-slate-900 whitespace-nowrap">${r["Stake"]||"—"}</td>
           <td class="px-3 py-2 border-b border-slate-900 whitespace-nowrap">${r["Win/Loss"]||"—"}</td>
@@ -1697,6 +1809,9 @@ function initControls() {
   });
 
   $("brandSelect").addEventListener("change", async () => {
+    // ✅ STEP 5: clear vendor history when brand changes
+    vendorHistoryCache.clear();
+
     $("searchBox").value = "";
     vendorCardFilter = "All";
     vendorStatusFilter = "All";
