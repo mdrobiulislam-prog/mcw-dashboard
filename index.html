@@ -250,6 +250,19 @@
 
         <div class="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-400">
           <div id="lastUpdated">Last update: —</div>
+
+          <!-- ✅ Smart Alerts Bar -->
+          <div id="smartAlertBar" class="hidden mt-3 rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <div class="text-sm font-semibold" id="smartAlertTitle">Alerts</div>
+                <div class="text-xs text-slate-400 mt-1" id="smartAlertSub">—</div>
+              </div>
+              <button id="smartAlertHide" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs">Hide</button>
+            </div>
+            <div class="mt-3 flex flex-col gap-2" id="smartAlertList"></div>
+          </div>
+
           <div class="px-2 py-1 rounded-lg bg-slate-950 border border-slate-800" id="metaInfo">—</div>
           <div class="px-2 py-1 rounded-lg bg-slate-950 border border-slate-800">Mode: <span id="modeInfo">CSV</span></div>
           <div class="px-2 py-1 rounded-lg bg-slate-950 border border-slate-800">Cache: <span id="cacheInfo">—</span></div>
@@ -311,6 +324,12 @@
         </div>
       </div>
 
+      <!-- ✅ KPI Funnel -->
+      <div id="kpiFunnelWrap" class="mt-4 bg-slate-950 border border-slate-800 rounded-2xl p-4">
+        <div class="text-sm font-semibold mb-2">KPI Funnel</div>
+        <div id="funnelCards" class="grid grid-cols-1 md:grid-cols-5 gap-3"></div>
+      </div>
+
       <!-- Vendor action center -->
       <div id="vendorOptions" class="hidden bg-slate-900/50 border border-slate-800 rounded-2xl p-4 mb-5">
         <div class="flex flex-col lg:flex-row gap-3 lg:items-center lg:justify-between">
@@ -345,7 +364,6 @@
 
       <!-- Chart + Table + Scoreboard -->
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-
         <div class="lg:col-span-1 bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
           <div class="flex items-center justify-between mb-3">
             <div class="font-semibold" id="chartTitle">Overview</div>
@@ -364,7 +382,6 @@
           </div>
         </div>
 
-        <!-- Scoreboard (only for ALL Brands + Daily snapshot) -->
         <div id="scoreboardWrap" class="hidden lg:col-span-3 bg-slate-900/60 border border-slate-800 rounded-2xl p-4 overflow-hidden">
           <div class="flex items-center justify-between mb-3">
             <div class="font-semibold">ALL Brands Scoreboard</div>
@@ -377,7 +394,6 @@
             Winner badges show which brand is best per metric on the selected date.
           </div>
         </div>
-
       </div>
 
     </div>
@@ -440,7 +456,7 @@ let currentHeaders = [];
 let filteredRows = [];
 let lastFetchedData = null;
 
-let vendorHistoryCache = new Map(); // cacheKey -> full vendor rows
+let vendorHistoryCache = new Map();
 let activeVendorName = "";
 
 /** vendor chips */
@@ -539,6 +555,42 @@ function badgeStatus(status) {
   return `<span class="px-2 py-1 rounded-lg text-xs ${cls}">${status || "—"}</span>`;
 }
 
+function showSmartAlerts(alerts, brandKey, dataset, date) {
+  const bar = $("smartAlertBar");
+  const list = $("smartAlertList");
+  const sub = $("smartAlertSub");
+
+  if (!alerts || !alerts.length) {
+    bar.classList.add("hidden");
+    return;
+  }
+
+  sub.textContent = `Brand: ${brandKey} · ${dataset.toUpperCase()} · ${date}`;
+  list.innerHTML = alerts.map(a => `
+    <div class="rounded-xl border px-3 py-2 ${
+      a.level === "critical" ? "border-rose-600/40 bg-rose-600/10" :
+      a.level === "warning" ? "border-orange-600/40 bg-orange-600/10" :
+      "border-emerald-600/40 bg-emerald-600/10"
+    }">
+      <div class="text-sm font-semibold">${a.message}</div>
+      <div class="text-xs text-slate-400">${a.detail || ""}</div>
+    </div>
+  `).join("");
+
+  bar.classList.remove("hidden");
+}
+
+function buildDailyAlertsFromAgg(agg) {
+  const alerts = [];
+  if (agg.net < 0) alerts.push({ level:"critical", message:"Net Cash is negative", detail: agg.net });
+  if (agg.margin < 2) alerts.push({ level:"critical", message:"Margin too low", detail: agg.margin+"%" });
+  if (agg.tx < 6) alerts.push({ level:"warning", message:"Turnover x is low", detail: agg.tx });
+  if (!alerts.length) alerts.push({ level:"healthy", message:"KPIs stable today" });
+  return alerts;
+}
+
+$("smartAlertHide")?.addEventListener("click", ()=> $("smartAlertBar")?.classList.add("hidden"));
+
 /** date helpers */
 function dateToMs(d){ return new Date(d+"T00:00:00").getTime(); }
 function msToDate(ms){
@@ -583,11 +635,6 @@ function buildHeaderAliasMap(dataset){
     "1st depositors": "1st Depositors",
     "regusers": "Reg Users",
     "reg users": "Reg Users",
-    "turn over": "Turnover",
-    "turnover amount": "Turnover",
-    "turnover (৳)": "Turnover",
-    "total turnover": "Turnover",
-    "turnover value": "Turnover",
 
     "date": "Date",
     "report date": "Date",
@@ -919,7 +966,7 @@ function renderTable(headers, rows) {
 
         if (currentDataset === "vendor" && h === "Vendor") {
           const v = String(val || "").trim();
-          const b = String(r["Brand"] || "").trim(); // might exist in ALL mode
+          const b = String(r["Brand"] || "").trim();
           return `<td class="px-3 py-2 border-b border-slate-900">
             <button class="vendorLink text-indigo-300 hover:text-indigo-200 underline underline-offset-2"
               data-vendor="${v.replace(/"/g,'&quot;')}"
@@ -940,24 +987,104 @@ function renderTable(headers, rows) {
 }
 
 /** =========================================================
- * ✅ VENDOR MODAL FUNCTIONS (FIXED / NO PLACEHOLDERS)
+ * KPI FUNNEL (Daily + Vendor) ✅ FIXED
  * ========================================================= */
-function openVendorModal(){
-  $("vendorModal").classList.remove("hidden");
+function funnelCard(title, value, sub="") {
+  return `
+    <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
+      <div class="text-xs text-slate-400">${title}</div>
+      <div class="mt-1 text-lg font-semibold">${value ?? "—"}</div>
+      ${sub ? `<div class="mt-1 text-[11px] text-slate-500">${sub}</div>` : ``}
+    </div>
+  `;
 }
+function renderFunnelCards(items){
+  const wrap = document.getElementById("funnelCards");
+  if (!wrap) return;
+  wrap.innerHTML = (items || []).map(x => funnelCard(x.label, x.value, x.sub)).join("");
+}
+
+function renderFunnel(allRows, selectedDate, brandKey) {
+  const wrap = document.getElementById("funnelCards");
+  if (!wrap) return;
+
+  if (!selectedDate) { wrap.innerHTML = ""; return; }
+
+  // DAILY FUNNEL
+  if (currentDataset === "daily") {
+    const dayRows = (allRows || []).filter(r => r.__date === selectedDate);
+
+    let reg = 0, fd = 0, dep = 0, trn = 0, win = 0;
+
+    if (brandKey === "ALL") {
+      const agg = calcDailyRowAggregate(dayRows);
+      reg = agg.reg; fd = agg.fd; dep = agg.dep; trn = agg.trn; win = agg.win;
+    } else {
+      const r = dayRows[0] || null;
+      reg = r ? toNumber(r["Reg Users"]) : 0;
+      fd  = r ? toNumber(r["1st Depositors"]) : 0;
+      dep = r ? toNumber(r["Deposit"]) : 0;
+      trn = r ? toNumber(r["Turnover"]) : 0;
+      win = r ? toNumber(r["Company Win"]) : 0;
+    }
+
+    const conv = reg ? (fd / reg) * 100 : 0;
+    const depPerFD = fd ? dep / fd : 0;
+    const tx = dep ? trn / dep : 0;
+    const margin = trn ? (win / trn) * 100 : 0;
+
+    renderFunnelCards([
+      { label:"Reg Users", value: fmtNumber(reg), sub:"Traffic" },
+      { label:"1st Depositors", value: fmtNumber(fd), sub:`Conv: ${conv.toFixed(2)}%` },
+      { label:"Deposit", value: fmtMoney(dep), sub: fd ? `Avg/FD: ${fmtMoney(depPerFD)}` : "" },
+      { label:"Turnover", value: fmtMoney(trn), sub: dep ? `Turnover x: ${tx.toFixed(3)}` : "" },
+      { label:"Company Win", value: fmtMoney(win), sub: trn ? `Margin: ${margin.toFixed(2)}%` : "" },
+    ]);
+    return;
+  }
+
+  // VENDOR FUNNEL
+  if (currentDataset === "vendor") {
+    const dayRows = (allRows || []).filter(r => r.__date === selectedDate);
+
+    const vendors = dayRows.length;
+    const totalPlayers = dayRows.reduce((s,r)=> s + toNumber(r["Players"]), 0);
+    const totalStake   = dayRows.reduce((s,r)=> s + toNumber(r["Stake"]), 0);
+    const totalWL      = dayRows.reduce((s,r)=> s + toNumber(r["Win/Loss"]), 0);
+
+    const dangerous = dayRows.filter(r => String(r["Status"]||"").toLowerCase().includes("danger")).length;
+    const risky     = dayRows.filter(r => String(r["Status"]||"").toLowerCase().includes("risky")).length;
+    const normal    = dayRows.filter(r => String(r["Status"]||"").toLowerCase().includes("normal")).length;
+    const healthy   = dayRows.filter(r => String(r["Status"]||"").toLowerCase().includes("healthy")).length;
+
+    const avgLossPct = vendors ? (dayRows.reduce((s,r)=> s + toNumber(r["Loss %"]), 0) / vendors) : 0;
+
+    renderFunnelCards([
+      { label:"Vendors", value: fmtNumber(vendors), sub:"Selected date" },
+      { label:"Players", value: fmtNumber(totalPlayers), sub:"Sum players" },
+      { label:"Stake", value: fmtMoney(totalStake), sub:"Sum stake" },
+      { label:"Win/Loss", value: fmtMoney(totalWL), sub:`Avg Loss%: ${avgLossPct.toFixed(2)}%` },
+      { label:"Risk Split", value: `${dangerous}/${risky}/${normal}/${healthy}`, sub:"D/R/N/H" },
+    ]);
+    return;
+  }
+
+  wrap.innerHTML = "";
+}
+
+/** =========================================================
+ * ✅ VENDOR MODAL FUNCTIONS
+ * ========================================================= */
+function openVendorModal(){ $("vendorModal").classList.remove("hidden"); }
 function closeVendorModal(){
   $("vendorModal").classList.add("hidden");
   $("vendorModalSearch").value = "";
   activeVendorName = "";
 }
 $("vendorModalClose").addEventListener("click", closeVendorModal);
-$("vendorModal").addEventListener("click", (e) => {
-  if (e.target === $("vendorModal")) closeVendorModal();
-});
+$("vendorModal").addEventListener("click", (e) => { if (e.target === $("vendorModal")) closeVendorModal(); });
 
-function modalCacheKey(brandKey){
-  return `vendor_all_${brandKey}`;
-}
+function modalCacheKey(brandKey){ return `vendor_all_${brandKey}`; }
 
 async function ensureVendorHistory(brandKey){
   const key = modalCacheKey(brandKey);
@@ -968,9 +1095,7 @@ async function ensureVendorHistory(brandKey){
     const d = await fetchBrandData(brandKey, "vendor", false);
     vendorHistoryCache.set(key, d.rows);
     return d.rows;
-  } finally {
-    hideLoading();
-  }
+  } finally { hideLoading(); }
 }
 
 function renderVendorModalTable(rows){
@@ -1025,15 +1150,12 @@ function applyVendorModalFilterSort(allRows){
     if (sort==="playersDesc") return players(b)-players(a);
     return 0;
   });
-
   return rows;
 }
 
 async function showVendorHistory(vendorName, brandFromRow){
   const selectedBrand = $("brandSelect").value;
-  const brandKey = (selectedBrand === "ALL")
-    ? (brandFromRow || "")
-    : selectedBrand;
+  const brandKey = (selectedBrand === "ALL") ? (brandFromRow || "") : selectedBrand;
 
   if (!brandKey){
     alert("Please select a specific brand (not ALL) to view vendor history.");
@@ -1052,13 +1174,12 @@ async function showVendorHistory(vendorName, brandFromRow){
   const rendered = applyVendorModalFilterSort(onlyThisVendor);
   renderVendorModalTable(rendered);
 
-  // bind live filter/sort
   const rerender = () => renderVendorModalTable(applyVendorModalFilterSort(onlyThisVendor));
   $("vendorModalSearch").oninput = rerender;
   $("vendorModalSort").onchange = rerender;
 }
 
-/** Global click handler for vendorLink (table + top vendors) */
+/** Global click handler for vendorLink */
 document.addEventListener("click", (e) => {
   const btn = e.target.closest(".vendorLink");
   if (!btn) return;
@@ -1505,6 +1626,7 @@ async function refreshFiltersOnly(){
   renderCards(rows, date, brandKey);
   renderMainChart(rows, date, brandKey);
   renderTable(headers, filteredRows);
+  renderFunnel(rows, date, brandKey);
 
   if (dataset === "vendor" && date) {
     const dayRows = rows.filter(r => r.__date === date);
@@ -1660,6 +1782,13 @@ function renderMainChart(rows, selectedDate, brandKey) {
 /** =========================================================
  * LOAD + RENDER MAIN
  * ========================================================= */
+function updateFunnelVisibility(){
+  const el = $("kpiFunnelWrap");
+  if (!el) return;
+  const shouldHide = (currentDataset === "daily" && dailyView === "trend");
+  el.classList.toggle("hidden", shouldHide);
+}
+
 function setDatasetButtons() {
   if (currentDataset === "daily") {
     $("btnDaily").className = "flex-1 px-3 py-2 rounded-xl border border-slate-800 bg-indigo-600 font-medium";
@@ -1672,6 +1801,7 @@ function setDatasetButtons() {
     $("vendorOptions").classList.remove("hidden");
     $("dailyOptions").classList.add("hidden");
   }
+  updateFunnelVisibility();
 }
 
 function setDailyViewButtons(){
@@ -1690,6 +1820,8 @@ function setDailyViewButtons(){
     if (r === trendDays) b.className = "trendRange px-3 py-2 rounded-xl bg-indigo-600 text-sm font-semibold";
     else b.className = "trendRange px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-sm";
   });
+
+  updateFunnelVisibility();
 }
 
 function computeLastAvailableDate(rows){
@@ -1720,14 +1852,11 @@ async function loadAndRender(force=false) {
 
     setLastUpdated();
     await refreshFiltersOnly();
-
     prefetchOtherDataset(brandKey);
 
   } catch(err) {
     alert("Error:\n\n" + err.message + "\n\nFix: open via Netlify / localhost (Live Server).");
-  } finally {
-    hideLoading();
-  }
+  } finally { hideLoading(); }
 }
 
 /** =========================================================
@@ -1773,9 +1902,7 @@ $("exportCombinedBtn").addEventListener("click", async () => {
     exportCSV(vendor.headers, vendorRows, `${brandKey}_vendor_${date}.csv`);
   } catch(e) {
     alert("Export combined failed: " + e.message);
-  } finally {
-    hideLoading();
-  }
+  } finally { hideLoading(); }
 });
 
 $("printBtn").addEventListener("click", () => window.print());
@@ -1809,9 +1936,7 @@ function initControls() {
   });
 
   $("brandSelect").addEventListener("change", async () => {
-    // ✅ STEP 5: clear vendor history when brand changes
     vendorHistoryCache.clear();
-
     $("searchBox").value = "";
     vendorCardFilter = "All";
     vendorStatusFilter = "All";
@@ -1819,14 +1944,8 @@ function initControls() {
     await loadAndRender(false);
   });
 
-  $("dateSelect").addEventListener("change", async () => {
-    await refreshFiltersOnly();
-  });
-
-  $("searchBox").addEventListener("input", async () => {
-    await refreshFiltersOnly();
-  });
-
+  $("dateSelect").addEventListener("change", async () => { await refreshFiltersOnly(); });
+  $("searchBox").addEventListener("input", async () => { await refreshFiltersOnly(); });
   $("refreshBtn").addEventListener("click", () => loadAndRender(true));
 
   $("quickLatest").addEventListener("click", async () => {
@@ -1867,9 +1986,7 @@ function initControls() {
   });
 
   $("trendMetric").addEventListener("change", async () => {
-    if (currentDataset === "daily" && $("dateSelect").value) {
-      await refreshFiltersOnly();
-    }
+    if (currentDataset === "daily" && $("dateSelect").value) await refreshFiltersOnly();
   });
 
   $("vendorSort").addEventListener("change", async () => {
